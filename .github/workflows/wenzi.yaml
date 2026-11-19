@@ -1,78 +1,110 @@
-name: Sync Upstream Code & Latest Release
+name: Sync Release and Replace URLs
 
 on:
   schedule:
-    # 每天北京时间 10:00 自动检查同步
-    - cron: '0 2 * * *'
-  workflow_dispatch:
+    # 每 6 小时自动运行一次（可根据需要修改 cron 表达式）
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # 允许在 GitHub 网页端手动触发
 
 permissions:
-  contents: write
+  contents: write # 必须赋予写权限以推送代码和创建 Release
 
 jobs:
-  sync-repo:
+  sync:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     steps:
-      # 1. 检出你自己的仓库完整历史
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 同步上游代码，同时保护/重写三个核心脚本
-      - name: Sync Upstream Code (Keep Custom Scripts)
+      - name: Check latest release from upstream
+        id: check_release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          UPSTREAM_REPO="MHSanaei/3x-ui"
+          TARGET_REPO="wenzi360/3x-ui"
 
-          git remote add upstream https://github.com
-          git fetch upstream main
-
-          # 合并上游最新源码，随后自动将三个安装/管理脚本中的仓库地址重写为 wenzi360/3x-ui
-          git merge upstream/main -X theirs --no-edit || true
-          sed -i 's|mhsanaei/3x-ui|wenzi360/3x-ui|Ig' install.sh update.sh x-ui.sh
-
-          if [ -n "$(git status --porcelain)" ]; then
-            git add .
-            git commit -m "chore: sync upstream code and preserve wenzi360/3x-ui scripts"
-            git push origin main
-            echo "Code synced and scripts updated!"
-          else
-            echo "Code is already up to date."
-          fi
-
-      # 3. 仅同步最新正式版 Release 安装包
-      - name: Sync Latest Release
-        run: |
-          LATEST_TAG=$(gh release view -R MHSanaei/3x-ui --json tagName -q '.tagName')
-          echo "Upstream latest release: $LATEST_TAG"
+          # 获取上游最新 Release 的 Tag 名称
+          LATEST_TAG=$(gh release view --repo $UPSTREAM_REPO --json tagName -q '.tagName')
+          echo "Upstream latest tag: $LATEST_TAG"
 
           if [ -z "$LATEST_TAG" ]; then
-            echo "Failed to get upstream latest release."
+            echo "Failed to fetch upstream tag."
             exit 1
           fi
 
-          if gh release view "$LATEST_TAG" -R wenzi360/3x-ui >/dev/null 2>&1; then
-            echo "Release $LATEST_TAG already exists in wenzi360/3x-ui. Skipping..."
-            exit 0
+          # 检查当前仓库是否已经存在该 Tag 的 Release
+          if gh release view "$LATEST_TAG" --repo $TARGET_REPO >/dev/null 2>&1; then
+            echo "Release $LATEST_TAG already exists. Nothing to do."
+            echo "should_sync=false" >> $GITHUB_OUTPUT
+          else
+            echo "New release $LATEST_TAG found! Starting sync..."
+            echo "should_sync=true" >> $GITHUB_OUTPUT
+            echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
           fi
 
-          echo "Syncing $LATEST_TAG from MHSanaei/3x-ui..."
-          mkdir -p ./release_assets
+      - name: Sync code, modify scripts, and push
+        if: steps.check_release.outputs.should_sync == 'true'
+        env:
+          TAG: ${{ steps.check_release.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@://github.com"
 
-          gh release download "$LATEST_TAG" -R MHSanaei/3x-ui -D ./release_assets
-          TITLE=$(gh release view "$LATEST_TAG" -R MHSanaei/3x-ui --json name -q '.name')
-          NOTES=$(gh release view "$LATEST_TAG" -R MHSanaei/3x-ui --json body -q '.body')
+          # 添加上游源并拉取最新 Tag 代码
+          git remote add upstream https://github.com
+          git fetch upstream tag "$TAG" --no-tags
 
-          [ -z "$TITLE" ] && TITLE="$LATEST_TAG"
+          # 强制将 main 分支重置为上游最新 Tag 的状态（保证代码完全同步）
+          git checkout -B main "$TAG"
 
-          gh release create "$LATEST_TAG" ./release_assets/* \
-            -R wenzi360/3x-ui \
-            --title "$TITLE" \
-            --notes "$NOTES"
+          # 替换 install.sh, update.sh, x-ui.sh 中的仓库地址（兼容大小写）
+          for file in install.sh update.sh x-ui.sh; do
+            if [ -f "$file" ]; then
+              sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' "$file"
+              echo "Updated $file"
+            fi
+          done
 
-          rm -rf ./release_assets
-          echo "Successfully synced $LATEST_TAG!"
+          # 提交修改并打上同名 Tag
+          git add .
+          git commit -m "Sync $TAG from upstream and update repo URLs" || true
+          git tag -f "$TAG"
+
+          # 推送分支和 Tag 到你的仓库
+          git push origin main --force
+          git push origin "$TAG" --force
+
+      - name: Download assets, patch inside archives, and create Release
+        if: steps.check_release.outputs.should_sync == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.check_release.outputs.tag }}
+        run: |
+          mkdir -p release_assets
+          cd release_assets
+
+          # 下载上游该版本的所有 Release 附件（如 x-ui-linux-amd64.tar.gz 等）
+          gh release download "$TAG" --repo MHSanaei/3x-ui
+
+          # （可选但推荐）解压安装包并替换内部打包进去的 x-ui.sh，防止面板内执行脚本时仍指向原仓库
+          for archive in *.tar.gz; do
+            if [ -f "$archive" ]; then
+              mkdir -p tmp_extract
+              tar -xzf "$archive" -C tmp_extract
+              find tmp_extract -type f \( -name "x-ui.sh" -o -name "install.sh" -o -name "update.sh" \) -exec sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' {} +
+              tar -czf "$archive" -C tmp_extract .
+              rm -rf tmp_extract
+            fi
+          done
+
+          # 获取上游 Release 的更新日志
+          gh release view "$TAG" --repo MHSanaei/3x-ui --json body -q '.body' > release_notes.md
+
+          # 在你的仓库创建对应 Release 并上传处理后的附件
+          gh release create "$TAG" * --exclude "release_notes.md" \
+            --repo wenzi360/3x-ui \
+            --title "$TAG" \
+            --notes-file release_notes.md
