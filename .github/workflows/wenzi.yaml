@@ -2,8 +2,14 @@ name: Sync Release and Replace URLs
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # 每 6 小时自动检查一次
-  workflow_dispatch: # 支持手动触发
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: '强制重新同步并替换最新 Release（即使已存在）'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -33,17 +39,17 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$LATEST_TAG" --repo $TARGET_REPO >/dev/null 2>&1; then
-            echo "Release $LATEST_TAG already exists."
-            echo "should_sync=false" >> $GITHUB_OUTPUT
-          else
-            echo "New release $LATEST_TAG found!"
+          # 如果是手动触发且勾选了 force_sync，或者目标仓库没有该 Release，则执行同步
+          if [ "${{ github.event.inputs.force_sync }}" == "true" ] || ! gh release view "$LATEST_TAG" --repo $TARGET_REPO >/dev/null 2>&1; then
+            echo "Proceeding to sync $LATEST_TAG..."
             echo "should_sync=true" >> $GITHUB_OUTPUT
             echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "Release $LATEST_TAG already exists. Skip."
+            echo "should_sync=false" >> $GITHUB_OUTPUT
           fi
 
-      # 第一步：完整同步上游代码与 Tag
-      - name: Sync upstream files
+      - name: Sync upstream code, replace URLs, and push
         if: steps.check_release.outputs.should_sync == 'true'
         env:
           TAG: ${{ steps.check_release.outputs.tag }}
@@ -51,42 +57,39 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@://github.com"
 
+          # 1. 拉取上游最新 Tag 代码到临时分支
           git remote add upstream https://github.com
           git fetch upstream tag "$TAG" --no-tags
+          git checkout -B temp_upstream "$TAG"
 
-          # 同步上游该 Tag 的全部文件到本地 main 分支
-          git checkout -B main "$TAG"
+          # 2. 切回你的 main 分支，用上游代码覆盖工作区（但不触碰 .github/workflows 目录！）
+          git checkout main
+          git rm -rf . --ignore-unmatch
+          git checkout temp_upstream -- .
+          
+          # 3. 恢复你自己的工作流目录，确保不触发 GitHub 的 workflow 推送拦截
+          git checkout HEAD -- .github/workflows
 
-      # 第二步：文件同步完成后，替换指定脚本中的所有 MHSanaei/3x-ui
-      - name: Replace repo URLs in install.sh, update.sh, x-ui.sh
-        if: steps.check_release.outputs.should_sync == 'true'
-        env:
-          TAG: ${{ steps.check_release.outputs.tag }}
-        run: |
-          # 使用 find 全局匹配仓库内的 install.sh, update.sh, x-ui.sh（无论在根目录还是子目录）
-          find . -type f \( -name "install.sh" -o -name "update.sh" -o -name "x-ui.sh" \) | while read -r file; do
-            echo "Replacing URLs in: $file"
-            # gI 参数表示全局替换且忽略大小写（同时覆盖 MHSanaei/3x-ui 和 mhsanaei/3x-ui）
-            sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' "$file"
+          # 4. 彻底替换 install.sh, update.sh, x-ui.sh 中的所有 MHSanaei/3x-ui
+          for file in install.sh update.sh x-ui.sh; do
+            if [ -f "$file" ]; then
+              sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' "$file"
+              sed -i 's|MHSanaei|wenzi360|gI' "$file"
+              echo "✅ 已替换: $file"
+            fi
           done
 
-          # 验证替换结果（检查是否还有残留）
-          if grep -ri "MHSanaei/3x-ui" install.sh update.sh x-ui.sh 2>/dev/null; then
-            echo "Warning: Some occurrences were not replaced!"
-            exit 1
-          else
-            echo "All occurrences in target scripts successfully replaced with wenzi360/3x-ui."
-          fi
+          # 5. 检查替换结果（在日志里直接打印匹配行）
+          echo "=== 检查替换后的链接 ==="
+          grep -rn "wenzi360/3x-ui" install.sh update.sh x-ui.sh
 
-          # 提交替换后的改动，更新 Tag 并推送到你的仓库
-          git add .
-          git commit -m "chore: replace MHSanaei/3x-ui with wenzi360/3x-ui in scripts for $TAG" || true
+          # 6. 提交并推送到你的 main 分支和 Tag
+          git add -A
+          git commit -m "chore: sync $TAG and replace URLs with wenzi360/3x-ui" || true
           git tag -f "$TAG"
-
           git push origin main --force
           git push origin "$TAG" --force
 
-      # 第三步：同步上游 Release 附件并替换压缩包内脚本的指向地址
       - name: Sync Release assets and patch archives
         if: steps.check_release.outputs.should_sync == 'true'
         env:
@@ -98,18 +101,26 @@ jobs:
 
           gh release download "$TAG" --repo MHSanaei/3x-ui
 
-          # 解压 .tar.gz 附件，同步替换里面打包的 install.sh/update.sh/x-ui.sh
           for archive in *.tar.gz; do
             if [ -f "$archive" ]; then
               mkdir -p tmp_extract
               tar -xzf "$archive" -C tmp_extract
-              find tmp_extract -type f \( -name "install.sh" -o -name "update.sh" -o -name "x-ui.sh" \) -exec sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' {} +
-              tar -czf "$archive" -C tmp_extract .
+              find tmp_extract -type f -name "*.sh" -exec sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' {} +
+              find tmp_extract -type f -name "*.sh" -exec sed -i 's|MHSanaei|wenzi360|gI' {} +
+              rm -f "$archive"
+              (cd tmp_extract && tar -czf "../$archive" *)
               rm -rf tmp_extract
+
+              if [ -f "${archive}.sha256" ]; then
+                sha256sum "$archive" > "${archive}.sha256"
+              fi
             fi
           done
 
           gh release view "$TAG" --repo MHSanaei/3x-ui --json body -q '.body' > release_notes.md
+
+          # 如果已存在旧的同名 Release 则先删除再重建
+          gh release delete "$TAG" --repo wenzi360/3x-ui --yes 2>/dev/null || true
 
           gh release create "$TAG" * --exclude "release_notes.md" \
             --repo wenzi360/3x-ui \
