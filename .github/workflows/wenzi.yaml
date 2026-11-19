@@ -31,7 +31,7 @@ jobs:
           UPSTREAM_REPO="MHSanaei/3x-ui"
           TARGET_REPO="wenzi360/3x-ui"
 
-          LATEST_TAG=$(gh release view --repo $UPSTREAM_REPO --json tagName -q '.tagName')
+          LATEST_TAG=$(gh release view --repo "$UPSTREAM_REPO" --json tagName -q '.tagName')
           echo "Upstream latest tag: $LATEST_TAG"
 
           if [ -z "$LATEST_TAG" ]; then
@@ -39,7 +39,7 @@ jobs:
             exit 1
           fi
 
-          if [ "${{ github.event.inputs.force_sync }}" == "true" ] || ! gh release view "$LATEST_TAG" --repo $TARGET_REPO >/dev/null 2>&1; then
+          if [ "${{ github.event.inputs.force_sync }}" == "true" ] || ! gh release view "$LATEST_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
             echo "Proceeding to sync $LATEST_TAG..."
             echo "should_sync=true" >> $GITHUB_OUTPUT
             echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
@@ -51,25 +51,23 @@ jobs:
       - name: Sync upstream code, replace URLs, and push
         if: steps.check_release.outputs.should_sync == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.check_release.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 使用变量拼接上游地址，彻底防止复制时被浏览器截断
-          UPSTREAM_URL="https://github.com"
-          git remote remove upstream 2>/dev/null || true
-          git remote add upstream "$UPSTREAM_URL"
-          git fetch upstream tag "$TAG" --no-tags
-          git checkout -B temp_upstream "$TAG"
+          # 1. 使用 gh cli 直接克隆上游指定 Tag 到临时目录（避免在脚本中写死 URL 被网页截断）
+          gh repo clone MHSanaei/3x-ui /tmp/upstream_repo -- --branch "$TAG" --depth 1
 
-          # 切回 main 分支，用上游代码覆盖工作区（不触碰 .github/workflows）
-          git checkout main
-          git rm -rf . --ignore-unmatch
-          git checkout temp_upstream -- .
-          git checkout HEAD -- .github/workflows
+          # 2. 清空当前工作区并复制上游文件（保留 .git 和 .github/workflows）
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.github' -exec rm -rf {} +
+          find .github -mindepth 1 -maxdepth 1 ! -name 'workflows' -exec rm -rf {} + 2>/dev/null || true
 
-          # 替换 install.sh, update.sh, x-ui.sh 中的所有指向地址
+          # 复制上游除 .git 和 .github/workflows 外的所有文件
+          rsync -a --exclude='.git' --exclude='.github/workflows' /tmp/upstream_repo/ ./
+
+          # 3. 替换 install.sh, update.sh, x-ui.sh 中的所有 MHSanaei/3x-ui
           for file in install.sh update.sh x-ui.sh; do
             if [ -f "$file" ]; then
               sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' "$file"
@@ -81,7 +79,7 @@ jobs:
           echo "=== 检查替换后的链接 ==="
           grep -rn "wenzi360/3x-ui" install.sh update.sh x-ui.sh
 
-          # 提交并推送到你的 main 分支和 Tag
+          # 4. 提交并推送到你的 main 分支和 Tag
           git add -A
           git commit -m "chore: sync $TAG and replace URLs with wenzi360/3x-ui" || true
           git tag -f "$TAG"
