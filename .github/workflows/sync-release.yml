@@ -2,6 +2,7 @@ name: Sync Upstream Code & Latest Release
 
 on:
   schedule:
+
     - cron: '0 2 * * *'
   workflow_dispatch:
 
@@ -12,20 +13,20 @@ jobs:
   sync-repo:
     runs-on: ubuntu-latest
     env:
-      UPSTREAM_REPO: MHSanaei/3x-ui
-      TARGET_REPO: wenzi360/3x-ui
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
+
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+
       - name: Sync Upstream Code (Keep Custom Scripts)
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@://github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git remote add upstream https://github.com
           git fetch upstream main
@@ -44,7 +45,7 @@ jobs:
 
       - name: Sync Latest Release
         run: |
-          LATEST_TAG=$(gh release view -R $UPSTREAM_REPO --json tagName -q '.tagName')
+          LATEST_TAG=$(gh release view -R MHSanaei/3x-ui --json tagName -q '.tagName')
           echo "Upstream latest release: $LATEST_TAG"
 
           if [ -z "$LATEST_TAG" ]; then
@@ -52,22 +53,22 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$LATEST_TAG" -R $TARGET_REPO >/dev/null 2>&1; then
-            echo "Release $LATEST_TAG already exists in $TARGET_REPO. Skipping..."
+          if gh release view "$LATEST_TAG" -R wenzi360/3x-ui >/dev/null 2>&1; then
+            echo "Release $LATEST_TAG already exists in wenzi360/3x-ui. Skipping..."
             exit 0
           fi
 
-          echo "Syncing $LATEST_TAG from $UPSTREAM_REPO..."
+          echo "Syncing $LATEST_TAG from MHSanaei/3x-ui..."
           mkdir -p ./release_assets
 
-          gh release download "$LATEST_TAG" -R $UPSTREAM_REPO -D ./release_assets
-          TITLE=$(gh release view "$LATEST_TAG" -R $UPSTREAM_REPO --json name -q '.name')
-          NOTES=$(gh release view "$LATEST_TAG" -R $UPSTREAM_REPO --json body -q '.body')
+          gh release download "$LATEST_TAG" -R MHSanaei/3x-ui -D ./release_assets
+          TITLE=$(gh release view "$LATEST_TAG" -R MHSanaei/3x-ui --json name -q '.name')
+          NOTES=$(gh release view "$LATEST_TAG" -R MHSanaei/3x-ui --json body -q '.body')
 
           [ -z "$TITLE" ] && TITLE="$LATEST_TAG"
 
           gh release create "$LATEST_TAG" ./release_assets/* \
-            -R $TARGET_REPO \
+            -R wenzi360/3x-ui \
             --title "$TITLE" \
             --notes "$NOTES"
 
