@@ -1,0 +1,64 @@
+name: Sync v2.9.4 and Latest Release
+
+on:
+  schedule:
+    # 每天 UTC 时间 02:00（北京时间 10:00）自动检查并同步最新正式版
+    - cron: '0 2 * * *'
+  # 允许在 Actions 页面手动点击按钮立即触发
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-selected:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: MHSanaei/3x-ui
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Sync v2.9.4 and Latest Release
+        run: |
+          # 1. 获取原仓库最新的正式版 Tag（例如 v3.11.0）
+          LATEST_TAG=$(gh release view -R $UPSTREAM_REPO --json tagName -q '.tagName')
+          echo "Upstream latest release: $LATEST_TAG"
+
+          # 2. 组合需要同步的目标列表（先同步旧版 v2.9.4，再同步最新版，保证最新版排在最前面）
+          TARGET_TAGS="v2.9.4 $LATEST_TAG"
+
+          # 3. 遍历执行同步
+          for TAG in $TARGET_TAGS; do
+            if [ -z "$TAG" ]; then
+              continue
+            fi
+
+            echo "----------------------------------------"
+            echo "Checking release: $TAG"
+
+            # 如果你的仓库里已经存在该版本，则自动跳过
+            if gh release view "$TAG" -R ${{ github.repository }} >/dev/null 2>&1; then
+              echo "Release $TAG already exists in your repo. Skipping..."
+              continue
+            fi
+
+            echo "Syncing $TAG from $UPSTREAM_REPO..."
+            mkdir -p ./release_assets
+
+            # 下载原仓库对应版本的所有安装包和 .sha256 校验文件
+            gh release download "$TAG" -R $UPSTREAM_REPO -D ./release_assets
+            TITLE=$(gh release view "$TAG" -R $UPSTREAM_REPO --json name -q '.name')
+            NOTES=$(gh release view "$TAG" -R $UPSTREAM_REPO --json body -q '.body')
+
+            [ -z "$TITLE" ] && TITLE="$TAG"
+
+            # 在你的仓库创建对应 Release 并上传所有附件
+            gh release create "$TAG" ./release_assets/* \
+              -R ${{ github.repository }} \
+              --title "$TITLE" \
+              --notes "$NOTES"
+
+            # 清理临时目录
+            rm -rf ./release_assets
+            echo "Successfully synced $TAG!"
+          done
