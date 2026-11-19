@@ -1,0 +1,78 @@
+name: Sync Upstream Code & Latest Release
+
+on:
+  schedule:
+    # 每天北京时间 10:00 自动检查同步
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-repo:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      # 1. 检出你自己的仓库完整历史
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. 同步上游代码，同时保护/重写三个核心脚本
+      - name: Sync Upstream Code (Keep Custom Scripts)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com
+          git fetch upstream main
+
+          # 合并上游最新源码，随后自动将三个安装/管理脚本中的仓库地址重写为 wenzi360/3x-ui
+          git merge upstream/main -X theirs --no-edit || true
+          sed -i 's|mhsanaei/3x-ui|wenzi360/3x-ui|Ig' install.sh update.sh x-ui.sh
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "chore: sync upstream code and preserve wenzi360/3x-ui scripts"
+            git push origin main
+            echo "Code synced and scripts updated!"
+          else
+            echo "Code is already up to date."
+          fi
+
+      # 3. 仅同步最新正式版 Release 安装包
+      - name: Sync Latest Release
+        run: |
+          LATEST_TAG=$(gh release view -R MHSanaei/3x-ui --json tagName -q '.tagName')
+          echo "Upstream latest release: $LATEST_TAG"
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "Failed to get upstream latest release."
+            exit 1
+          fi
+
+          if gh release view "$LATEST_TAG" -R wenzi360/3x-ui >/dev/null 2>&1; then
+            echo "Release $LATEST_TAG already exists in wenzi360/3x-ui. Skipping..."
+            exit 0
+          fi
+
+          echo "Syncing $LATEST_TAG from MHSanaei/3x-ui..."
+          mkdir -p ./release_assets
+
+          gh release download "$LATEST_TAG" -R MHSanaei/3x-ui -D ./release_assets
+          TITLE=$(gh release view "$LATEST_TAG" -R MHSanaei/3x-ui --json name -q '.name')
+          NOTES=$(gh release view "$LATEST_TAG" -R MHSanaei/3x-ui --json body -q '.body')
+
+          [ -z "$TITLE" ] && TITLE="$LATEST_TAG"
+
+          gh release create "$LATEST_TAG" ./release_assets/* \
+            -R wenzi360/3x-ui \
+            --title "$TITLE" \
+            --notes "$NOTES"
+
+          rm -rf ./release_assets
+          echo "Successfully synced $LATEST_TAG!"
