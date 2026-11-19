@@ -39,7 +39,6 @@ jobs:
             exit 1
           fi
 
-          # 如果是手动触发且勾选了 force_sync，或者目标仓库没有该 Release，则执行同步
           if [ "${{ github.event.inputs.force_sync }}" == "true" ] || ! gh release view "$LATEST_TAG" --repo $TARGET_REPO >/dev/null 2>&1; then
             echo "Proceeding to sync $LATEST_TAG..."
             echo "should_sync=true" >> $GITHUB_OUTPUT
@@ -55,22 +54,22 @@ jobs:
           TAG: ${{ steps.check_release.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@://github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 1. 拉取上游最新 Tag 代码到临时分支
-          git remote add upstream https://github.com
+          # 使用变量拼接上游地址，彻底防止复制时被浏览器截断
+          UPSTREAM_URL="https://github.com"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "$UPSTREAM_URL"
           git fetch upstream tag "$TAG" --no-tags
           git checkout -B temp_upstream "$TAG"
 
-          # 2. 切回你的 main 分支，用上游代码覆盖工作区（但不触碰 .github/workflows 目录！）
+          # 切回 main 分支，用上游代码覆盖工作区（不触碰 .github/workflows）
           git checkout main
           git rm -rf . --ignore-unmatch
           git checkout temp_upstream -- .
-          
-          # 3. 恢复你自己的工作流目录，确保不触发 GitHub 的 workflow 推送拦截
           git checkout HEAD -- .github/workflows
 
-          # 4. 彻底替换 install.sh, update.sh, x-ui.sh 中的所有 MHSanaei/3x-ui
+          # 替换 install.sh, update.sh, x-ui.sh 中的所有指向地址
           for file in install.sh update.sh x-ui.sh; do
             if [ -f "$file" ]; then
               sed -i 's|MHSanaei/3x-ui|wenzi360/3x-ui|gI' "$file"
@@ -79,11 +78,10 @@ jobs:
             fi
           done
 
-          # 5. 检查替换结果（在日志里直接打印匹配行）
           echo "=== 检查替换后的链接 ==="
           grep -rn "wenzi360/3x-ui" install.sh update.sh x-ui.sh
 
-          # 6. 提交并推送到你的 main 分支和 Tag
+          # 提交并推送到你的 main 分支和 Tag
           git add -A
           git commit -m "chore: sync $TAG and replace URLs with wenzi360/3x-ui" || true
           git tag -f "$TAG"
@@ -119,7 +117,6 @@ jobs:
 
           gh release view "$TAG" --repo MHSanaei/3x-ui --json body -q '.body' > release_notes.md
 
-          # 如果已存在旧的同名 Release 则先删除再重建
           gh release delete "$TAG" --repo wenzi360/3x-ui --yes 2>/dev/null || true
 
           gh release create "$TAG" * --exclude "release_notes.md" \
