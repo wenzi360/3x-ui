@@ -39,21 +39,9 @@ func ConfigEnvelopeMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Safe methods carry no config: an envelope there is never legitimate, and read-only
-		// (monitor) callers must not reach the decoder.
-		switch c.Request.Method {
-		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
-			c.AbortWithStatus(http.StatusBadRequest)
-			return
-		}
-
-		raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxDecodedConfigBytes+1))
+		raw, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			c.AbortWithStatus(http.StatusBadRequest)
-			return
-		}
-		if len(raw) > maxDecodedConfigBytes {
-			c.AbortWithStatus(http.StatusRequestEntityTooLarge)
 			return
 		}
 		_ = c.Request.Body.Close()

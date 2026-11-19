@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"slices"
 	"sort"
 	"strconv"
@@ -183,51 +182,19 @@ func buildHostRows(groupId string, req *entity.HostGroup) []*model.Host {
 	return rows
 }
 
-// A node's group is stored once per address and per adopted inbound, so the
-// response cap does not bound the write: the group's size and a per-node row budget do.
-const (
-	maxAdoptedHostGroupBytes = 16 << 10
-	maxAdoptedHostRows       = 2000
-)
-
-// adoptableHostGroups drops the node-reported groups too large to adopt.
-func adoptableHostGroups(groups []*entity.HostGroup) []*entity.HostGroup {
-	return slices.DeleteFunc(slices.Clone(groups), func(g *entity.HostGroup) bool {
-		if g == nil {
-			return true
-		}
-		wire, err := json.Marshal(g)
-		return err != nil || len(wire) > maxAdoptedHostGroupBytes
-	})
-}
-
-// adoptedHostRowBudget is how many more host rows a node's inbounds may adopt.
-func adoptedHostRowBudget(db *gorm.DB, nodeID int) (int, error) {
-	var held int64
-	err := db.Model(&model.Host{}).
-		Where("inbound_id IN (?)", db.Model(&model.Inbound{}).Select("id").Where("node_id = ?", nodeID)).
-		Count(&held).Error
-	return max(maxAdoptedHostRows-int(held), 0), err
-}
-
 // adoptedHostRows projects a node's host groups onto a freshly adopted central
-// inbound, building at most budget rows; it also returns how many groups that left out.
-func adoptedHostRows(groups []*entity.HostGroup, nodeInboundId, centralInboundId, budget int) ([]*model.Host, int) {
+// inbound so TLS/SNI/fingerprint overrides survive the node-to-master import.
+func adoptedHostRows(groups []*entity.HostGroup, nodeInboundId, centralInboundId int) []*model.Host {
 	var rows []*model.Host
-	skipped := 0
 	for _, g := range groups {
 		if g == nil || !slices.Contains(g.InboundIds, nodeInboundId) {
-			continue
-		}
-		if len(rows)+max(len(g.Hosts), 1) > budget {
-			skipped++
 			continue
 		}
 		scoped := *g
 		scoped.InboundIds = []int{centralInboundId}
 		rows = append(rows, buildHostRows(g.GroupId, &scoped)...)
 	}
-	return rows, skipped
+	return rows
 }
 
 func validateInboundsExist(tx *gorm.DB, inboundIds []int) error {

@@ -565,8 +565,6 @@ func (a *XraySettingController) updateOutboundSub(c *gin.Context) {
 		jsonMsg(c, "Failed to update outbound subscription", err)
 		return
 	}
-	// enabled and prepend decide which outbounds are merged and where.
-	a.XrayService.SetToNeedRestart()
 	jsonObj(c, "", nil)
 }
 
@@ -632,7 +630,19 @@ func (a *XraySettingController) parseOutboundSubURL(c *gin.Context) {
 	allowPrivate := c.PostForm("allowPrivate") == "true"
 	allowInsecure := c.PostForm("allowInsecure") == "true"
 	userAgent := c.PostForm("userAgent")
-	obs, err := a.OutboundSubscriptionService.Preview(rawURL, userAgent, allowPrivate, allowInsecure)
+	// Use a throw-away service instance; it only needs the settingService for proxy.
+	svc := service.OutboundSubscriptionService{}
+	// We don't have a direct "fetch once" that returns without storing, so we
+	// temporarily create a disabled row, refresh it, then delete. Cleaner would
+	// be to expose a pure ParseURL on the service, but this keeps the surface small.
+	tmp, err := svc.Create("preview", rawURL, "", userAgent, false, 600, allowPrivate, false, allowInsecure)
+	if err != nil {
+		jsonMsg(c, "Failed to preview subscription", err)
+		return
+	}
+	obs, err := svc.Refresh(tmp.Id)
+	// best-effort cleanup
+	_ = svc.Delete(tmp.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to fetch/parse subscription", err)
 		return

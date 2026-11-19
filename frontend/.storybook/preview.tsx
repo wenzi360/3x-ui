@@ -5,7 +5,6 @@ import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import { buildAntdThemeConfig } from '@/hooks/useTheme';
-import { INTERPOLATION } from '@/i18n/react';
 import enUS from '../../internal/web/translation/en-US.json';
 
 if (!i18next.isInitialized) {
@@ -13,7 +12,7 @@ if (!i18next.isInitialized) {
     lng: 'en-US',
     fallbackLng: 'en-US',
     resources: { 'en-US': { translation: enUS } },
-    interpolation: INTERPOLATION,
+    interpolation: { escapeValue: false, prefix: '{', suffix: '}' },
     returnNull: false,
   });
 }

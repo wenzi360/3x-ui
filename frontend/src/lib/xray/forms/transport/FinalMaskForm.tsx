@@ -1,4 +1,3 @@
-import { NativeSelect } from '@/components/form/NativeSelect';
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   AutoComplete,
@@ -17,7 +16,6 @@ import { useTranslation } from 'react-i18next';
 import type { FormInstance } from 'antd/es/form';
 import type { NamePath } from 'antd/es/form/interface';
 
-import { selectTagRender } from '@/components/form/SelectTag';
 import { RandomUtil } from '@/utils';
 import { activateOnKey } from '@/utils/a11y';
 import { OutboundProtocols, UTLS_FINGERPRINT } from '@/schemas/primitives';
@@ -408,7 +406,7 @@ function TcpMasksList({
                 }
               />
               {allowPresets && (
-                <NativeSelect
+                <Select
                   id={`${uid}-tcp-presets`}
                   size="small"
                   style={{ minWidth: 160 }}
@@ -479,7 +477,7 @@ function TcpMaskItem({
       </Divider>
 
       <Form.Item label="Type" name={[fieldName, 'type']}>
-        <NativeSelect
+        <Select
           onChange={(v) =>
             form.setFieldValue([...absolutePath, 'settings'], defaultTcpMaskSettings(v))
           }
@@ -610,7 +608,6 @@ function FilterMaskSettings({ fieldName }: { fieldName: number }) {
         <Select
           aria-describedby={`${uid}-allowed-hint`}
           mode="tags"
-          tagRender={selectTagRender}
           style={{ width: '100%' }}
           tokenSeparators={[',', ' ']}
           placeholder="10.0.0.0/8, geoip:ir"
@@ -627,7 +624,6 @@ function FilterMaskSettings({ fieldName }: { fieldName: number }) {
         <Select
           aria-describedby={`${uid}-blocked-hint`}
           mode="tags"
-          tagRender={selectTagRender}
           style={{ width: '100%' }}
           tokenSeparators={[',', ' ']}
           placeholder="203.0.113.7, geoip:cn"
@@ -653,12 +649,7 @@ function SudokuSettings({ fieldName }: { fieldName: number }) {
         <Input />
       </Form.Item>
       <Form.Item label="Custom Tables" name={[fieldName, 'settings', 'customTables']}>
-        <Select
-          mode="tags"
-          tagRender={selectTagRender}
-          style={{ width: '100%' }}
-          tokenSeparators={[',']}
-        />
+        <Select mode="tags" style={{ width: '100%' }} tokenSeparators={[',']} />
       </Form.Item>
       <Form.Item label="Padding Min" name={[fieldName, 'settings', 'paddingMin']}>
         <InputNumber min={0} />
@@ -1124,7 +1115,7 @@ function UdpMaskItem({
       </Divider>
 
       <Form.Item label="Type" name={[fieldName, 'type']}>
-        <NativeSelect onChange={onTypeChange} options={options} />
+        <Select onChange={onTypeChange} options={options} />
       </Form.Item>
 
       <Form.Item
@@ -1148,7 +1139,7 @@ function UdpMaskItem({
             return (
               <>
                 <Form.Item label="Header" name={[fieldName, 'settings', 'header']}>
-                  <NativeSelect
+                  <Select
                     options={[
                       { value: '', label: 'Original / AES-128-GCM' },
                       { value: 'dns', label: 'DNS' },
@@ -1184,12 +1175,7 @@ function UdpMaskItem({
                   <Switch />
                 </Form.Item>
                 <Form.Item label="IPs" name={[fieldName, 'settings', 'ips']}>
-                  <Select
-                    mode="tags"
-                    tagRender={selectTagRender}
-                    style={{ width: '100%' }}
-                    tokenSeparators={[',']}
-                  />
+                  <Select mode="tags" style={{ width: '100%' }} tokenSeparators={[',']} />
                 </Form.Item>
               </>
             );
@@ -1203,7 +1189,6 @@ function UdpMaskItem({
                 <Form.Item label="STUN Servers" name={[fieldName, 'settings', 'stunServers']}>
                   <Select
                     mode="tags"
-                    tagRender={selectTagRender}
                     style={{ width: '100%' }}
                     tokenSeparators={[',']}
                     placeholder="host:port"
@@ -1251,7 +1236,6 @@ function UdpMaskItem({
                 <Form.Item label="ALPN" name={[fieldName, 'settings', 'tlsConfig', 'alpn']}>
                   <Select
                     mode="multiple"
-                    tagRender={selectTagRender}
                     style={{ width: '100%' }}
                     options={[
                       { value: 'h3', label: 'h3' },
@@ -1328,7 +1312,7 @@ function SalamanderUdpMaskSettings({
             : 'Scrambles each packet into random-looking bytes.'
         }
       >
-        <NativeSelect
+        <Select
           id={`${uid}-salamander-mode`}
           value={mode}
           onChange={(next) => {
@@ -1545,7 +1529,6 @@ function XdnsSettings({ udpFieldName }: { udpFieldName: number }) {
                 <Form.Item label="Names" name={[domain.name, 'names']}>
                   <Select
                     mode="tags"
-                    tagRender={selectTagRender}
                     style={{ width: '100%' }}
                     tokenSeparators={[',']}
                     placeholder="t.example.com"
@@ -1554,7 +1537,6 @@ function XdnsSettings({ udpFieldName }: { udpFieldName: number }) {
                 <Form.Item label="Record Types" name={[domain.name, 'types']}>
                   <Select
                     mode="multiple"
-                    tagRender={selectTagRender}
                     options={XDNS_RECORD_TYPE_OPTIONS}
                     placeholder="TXT (client), all (server)"
                   />
@@ -1601,7 +1583,6 @@ function XdnsSettings({ udpFieldName }: { udpFieldName: number }) {
                 <Form.Item label="Addresses" name={[resolver.name, 'addrs']}>
                   <Select
                     mode="tags"
-                    tagRender={selectTagRender}
                     style={{ width: '100%' }}
                     tokenSeparators={[',', ' ']}
                     placeholder="udp://8.8.8.8:53, https://dns.google/dns-query"
@@ -1689,7 +1670,7 @@ function UdpHopSettings({ udpFieldName }: { udpFieldName: number }) {
         normalize={(value: string[]) => value.join(',')}
         rules={[{ required: true, message: 'pick at least one mode' }]}
       >
-        <Select mode="multiple" tagRender={selectTagRender} options={UDP_HOP_MODES} />
+        <Select mode="multiple" options={UDP_HOP_MODES} />
       </Form.Item>
       <Form.Item
         label="Interval (s)"
@@ -1702,12 +1683,7 @@ function UdpHopSettings({ udpFieldName }: { udpFieldName: number }) {
         <Input placeholder="20000-50000" />
       </Form.Item>
       <Form.Item label="Remote IPs" name={[udpFieldName, 'settings', 'remoteIPs']}>
-        <Select
-          mode="tags"
-          tagRender={selectTagRender}
-          style={{ width: '100%' }}
-          tokenSeparators={[',', ' ']}
-        />
+        <Select mode="tags" style={{ width: '100%' }} tokenSeparators={[',', ' ']} />
       </Form.Item>
     </>
   );
@@ -1948,7 +1924,7 @@ function ItemEditor({
     <>
       {allowVariables && (
         <Form.Item label="Kind" htmlFor={`${uid}-kind`}>
-          <NativeSelect
+          <Select
             id={`${uid}-kind`}
             value={kind}
             onChange={onKindChange}
@@ -1958,7 +1934,7 @@ function ItemEditor({
       )}
       {kind === 'bytes' && (
         <Form.Item label="Type" name={[fieldName, 'type']}>
-          <NativeSelect
+          <Select
             onChange={onTypeChange}
             options={[
               { value: 'array', label: 'Array' },
@@ -2123,7 +2099,7 @@ function QuicParamsForm({
   return (
     <>
       <Form.Item label="Congestion" name={[...base, 'congestion']}>
-        <NativeSelect
+        <Select
           options={[
             { value: 'reno', label: 'Reno' },
             { value: 'bbr', label: 'BBR' },

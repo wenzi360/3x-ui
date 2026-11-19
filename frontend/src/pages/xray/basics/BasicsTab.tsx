@@ -414,15 +414,12 @@ export default function BasicsTab({
             paddings="small"
             control={
               <Select
-                value={((log.logLevel ?? log.loglevel) as string) || 'warning'}
+                value={(log.loglevel as string) || 'warning'}
                 style={{ width: '100%' }}
                 options={LOG_LEVELS.map((s) => ({ value: s, label: s }))}
                 onChange={(v) =>
                   mutate((tt) => {
-                    if (!tt.log) return;
-                    // The core reads either spelling, so keeping both would let the stale one win.
-                    delete tt.log.loglevel;
-                    tt.log.logLevel = v;
+                    if (tt.log) tt.log.loglevel = v;
                   })
                 }
               />

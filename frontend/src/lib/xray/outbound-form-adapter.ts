@@ -354,23 +354,14 @@ function freedomFromWire(
       network,
       port: asString(rr.port),
       ip: asArray(rr.ip).map((x) => asString(x)),
-      // The deprecated blockDelay wins over delay, as it does in xray-core 26.11.9.
-      delay: asString(rr.blockDelay) || asString(rr.delay),
-      logLevel: asString(rr.logLevel),
+      blockDelay: asString(rr.blockDelay),
     };
   });
   // Legacy ipsBlocked → finalRule(block) backfill
   if (finalRules.length === 0) {
     const ipsBlocked = asArray(raw.ipsBlocked).map((x) => asString(x));
     if (ipsBlocked.length > 0) {
-      finalRules.push({
-        action: 'block',
-        network: '',
-        port: '',
-        ip: ipsBlocked,
-        delay: '',
-        logLevel: '',
-      });
+      finalRules.push({ action: 'block', network: '', port: '', ip: ipsBlocked, blockDelay: '' });
     }
   }
   // Wire fragment is either missing or a populated object. Mirror the
@@ -837,8 +828,7 @@ function freedomToWire(s: FreedomOutboundFormSettings) {
             network: r.network || undefined,
             port: r.port || undefined,
             ip: r.ip.length > 0 ? r.ip : undefined,
-            delay: r.action === 'block' && r.delay ? r.delay : undefined,
-            logLevel: r.action === 'block' && r.logLevel ? r.logLevel : undefined,
+            blockDelay: r.action === 'block' && r.blockDelay ? r.blockDelay : undefined,
           }))
         : undefined,
   };

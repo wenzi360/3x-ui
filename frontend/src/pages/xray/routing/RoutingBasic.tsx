@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Select, Switch } from 'antd';
 
-import { selectTagRender } from '@/components/form';
 import { SettingListItem } from '@/components/ui';
 import type { XraySettingsValue, SetTemplate } from '@/hooks/useXraySetting';
 import {
@@ -106,7 +105,6 @@ export default function RoutingBasic({ templateSettings, setTemplateSettings }: 
         control={
           <Select
             mode="tags"
-            tagRender={selectTagRender}
             value={blockedIPs}
             style={{ width: '100%' }}
             options={IPS_OPTIONS}
@@ -121,7 +119,6 @@ export default function RoutingBasic({ templateSettings, setTemplateSettings }: 
         control={
           <Select
             mode="tags"
-            tagRender={selectTagRender}
             value={blockedDomains}
             style={{ width: '100%' }}
             options={BLOCK_DOMAINS_OPTIONS}
@@ -143,7 +140,6 @@ export default function RoutingBasic({ templateSettings, setTemplateSettings }: 
         control={
           <Select
             mode="tags"
-            tagRender={selectTagRender}
             value={directIPs}
             style={{ width: '100%' }}
             options={IPS_OPTIONS}
@@ -163,7 +159,6 @@ export default function RoutingBasic({ templateSettings, setTemplateSettings }: 
         control={
           <Select
             mode="tags"
-            tagRender={selectTagRender}
             value={directDomains}
             style={{ width: '100%' }}
             options={DOMAINS_OPTIONS}
@@ -184,7 +179,6 @@ export default function RoutingBasic({ templateSettings, setTemplateSettings }: 
         control={
           <Select
             mode="tags"
-            tagRender={selectTagRender}
             value={ipv4Domains}
             style={{ width: '100%' }}
             options={SERVICES_OPTIONS}

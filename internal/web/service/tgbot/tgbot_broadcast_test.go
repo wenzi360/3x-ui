@@ -121,8 +121,9 @@ func broadcastLocalizer(t *testing.T) {
 		&i18n.Message{ID: "tgbot.messages.broadcastCanceled", Other: "canceled"},
 		&i18n.Message{ID: "tgbot.messages.broadcastUnreachable", Other: "ℹ️ {{ .Count }} recipients cannot be messaged — ask them to press Start."},
 	)
-	orig := locale.SwapBotLocalizer(i18n.NewLocalizer(bundle, "en-US"))
-	t.Cleanup(func() { locale.SwapBotLocalizer(orig) })
+	orig := locale.LocalizerBot
+	t.Cleanup(func() { locale.LocalizerBot = orig })
+	locale.LocalizerBot = i18n.NewLocalizer(bundle, "en-US")
 }
 
 func createBroadcastInbound(t *testing.T, tag, settings string) {

@@ -136,7 +136,7 @@ func (s *SubService) buildEndpointLinks(
 		applyEndpointFinalMask(e, nextParams)
 		applyEndpointAllowInsecure(e, nextParams, securityToApply)
 		remark := makeRemark(e)
-		if e.ServerDescription != "" && !s.omitServerDescription {
+		if e.ServerDescription != "" {
 			remark = appendHappServerDescription(remark, e.ServerDescription)
 		}
 		links = append(links, buildLinkWithParamsAndSecurity(

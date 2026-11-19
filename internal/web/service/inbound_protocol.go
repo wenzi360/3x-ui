@@ -7,7 +7,6 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/version"
-	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"gorm.io/gorm"
 )
@@ -140,9 +139,6 @@ func inboundCanHostFallbacks(ib *model.Inbound) bool {
 	if ib.Protocol != model.VLESS && ib.Protocol != model.Trojan {
 		return false
 	}
-	if ib.Protocol == model.VLESS && vlessDecryptionEnabled(ib.Settings) {
-		return false
-	}
 	return streamSupportsFallbacks(ib.StreamSettings)
 }
 
@@ -164,22 +160,4 @@ func streamSupportsFallbacks(streamSettings string) bool {
 		return false
 	}
 	return stream.Security == "tls" || stream.Security == "reality"
-}
-
-// validateTunWfpBlockLeak refuses at save the autoSystemWfpBlockLeak values xray-core 26.10.31
-// (#7288) refuses when the core starts, which stops every inbound with it.
-func validateTunWfpBlockLeak(protocol, settings string) error {
-	if protocol != "tun" {
-		return nil
-	}
-	var tunSettings struct {
-		AutoSystemWfpBlockLeak []string `json:"autoSystemWfpBlockLeak"`
-	}
-	if json.Unmarshal([]byte(settings), &tunSettings) != nil {
-		return nil
-	}
-	if err := xray.ValidateTunWfpBlockLeak(tunSettings.AutoSystemWfpBlockLeak); err != nil {
-		return common.NewError("TUN autoSystemWfpBlockLeak: ", err)
-	}
-	return nil
 }

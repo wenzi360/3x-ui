@@ -9,7 +9,6 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { selectTagRender } from '@/components/form';
 import type { AllSetting } from '@/models/setting';
 import { isOutboundProtocol } from '@/schemas/primitives';
 import { HttpUtil, LanguageManager } from '@/utils';
@@ -638,7 +637,6 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 <>
                   <Select
                     mode="multiple"
-                    tagRender={selectTagRender}
                     value={ldapInboundTagList}
                     onChange={setLdapInboundTagList}
                     style={{ width: '100%' }}

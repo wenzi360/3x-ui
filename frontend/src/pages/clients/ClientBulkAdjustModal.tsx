@@ -95,7 +95,7 @@ export default function ClientBulkAdjustModal({
       <Modal
         open={open}
         title={t('pages.clients.bulkAdjustTitle', { count })}
-        okText={t('confirm')}
+        okText={t('apply')}
         cancelText={t('cancel')}
         confirmLoading={submitting}
         onOk={handleOk}

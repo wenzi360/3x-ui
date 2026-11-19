@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/robfig/cron/v3"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/dbtest"
@@ -43,8 +42,7 @@ func inContractScope(method, path string) bool {
 	return strings.HasPrefix(path, "/panel/api/") || contractExtraRoutes[method+" "+path]
 }
 
-// newTestEngine builds the real panel router on a throwaway database.
-func newTestEngine(t *testing.T) *gin.Engine {
+func registeredContractRoutes(t *testing.T) map[string]bool {
 	t.Helper()
 	dbtest.InitDB(t, filepath.Join(t.TempDir(), "x-ui.db"))
 
@@ -61,12 +59,6 @@ func newTestEngine(t *testing.T) *gin.Engine {
 	if err != nil {
 		t.Fatalf("init router: %v", err)
 	}
-	return engine
-}
-
-func registeredContractRoutes(t *testing.T) map[string]bool {
-	t.Helper()
-	engine := newTestEngine(t)
 	routes := make(map[string]bool)
 	for _, r := range engine.Routes() {
 		routes[r.Method+" "+r.Path] = true

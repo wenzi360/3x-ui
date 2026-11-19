@@ -49,9 +49,7 @@ func (idx *PeerIndex) Lookup(addr netip.Addr) (amneziawg.Peer, bool) {
 	bestBits := -1
 	var bestPeer amneziawg.Peer
 	for _, e := range idx.entries {
-		// Equal length: the later peer wins, as in the device's allowed-IPs
-		// table, which buildUAPIConfig fills from the same peers in this order.
-		if e.prefix.Bits() < bestBits || !e.prefix.Contains(addr) {
+		if e.prefix.Bits() <= bestBits || !e.prefix.Contains(addr) {
 			continue
 		}
 		bestBits = e.prefix.Bits()

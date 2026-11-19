@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"embed"
 	"fmt"
-	"html"
 	"math/big"
 	"net"
 	"net/url"
@@ -25,7 +24,6 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 
 	"github.com/mymmrac/telego"
-	ta "github.com/mymmrac/telego/telegoapi"
 	th "github.com/mymmrac/telego/telegohandler"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpproxy"
@@ -36,8 +34,6 @@ var (
 	// botMu guards bot: EnsureBot may replace it while a background goroutine
 	// (the screen artwork warm-up) is still using the previous liveBot().
 	botMu sync.RWMutex
-	// botStop is closed by StopBot to end every in-flight call of the live bot.
-	botStop chan struct{}
 
 	// botCancel stores the function to cancel the context, stopping Long Polling gracefully.
 	botCancel context.CancelFunc
@@ -253,19 +249,9 @@ func (t *Tgbot) NewTgbot() *Tgbot {
 	return new(Tgbot)
 }
 
-// I18nBot retrieves a localized message for the bot interface. Every message is sent
-// HTML-parsed, so param values (remarks, e-mails, errors) are escaped here.
+// I18nBot retrieves a localized message for the bot interface.
 func (t *Tgbot) I18nBot(name string, params ...string) string {
-	escaped := make([]string, len(params))
-	for i, param := range params {
-		key, value, found := strings.Cut(param, "==")
-		if !found {
-			escaped[i] = param
-			continue
-		}
-		escaped[i] = key + "==" + html.EscapeString(value)
-	}
-	return locale.I18n(locale.Bot, name, escaped...)
+	return locale.I18n(locale.Bot, name, params...)
 }
 
 // GetHashStorage returns the hash storage instance for callback queries.
@@ -370,24 +356,16 @@ func (t *Tgbot) Start(i18nFS embed.FS) error {
 	}
 
 	// Create new Telegram bot instance
-	stop := make(chan struct{})
 	botMu.Lock()
-	bot, err = t.NewBot(tgBotToken, tgBotProxy, tgBotAPIServer, stop)
-	if err == nil {
-		botStop = stop
-	}
+	bot, err = t.NewBot(tgBotToken, tgBotProxy, tgBotAPIServer)
 	botMu.Unlock()
 	if err != nil {
 		logger.Error("Failed to initialize Telegram bot API:", err)
 		return err
 	}
 
-	// Off the start path: with Telegram unreachable these block for a minute,
-	// holding the panel's signal loop and the sub server behind them.
-	go func(b *telego.Bot) {
-		t.resolveScreenArt()
-		t.trySetBotCommands(b)
-	}(liveBot())
+	t.resolveScreenArt()
+	t.trySetBotCommands(liveBot())
 
 	// Start receiving Telegram bot messages
 	tgBotMutex.Lock()
@@ -473,7 +451,7 @@ func panelEgressDial(resolve func() string) fasthttp.DialFunc {
 }
 
 // NewBot creates a new Telegram bot instance with optional proxy and API server settings.
-func (t *Tgbot) NewBot(token string, proxyUrl string, apiServerUrl string, stopped <-chan struct{}) (*telego.Bot, error) {
+func (t *Tgbot) NewBot(token string, proxyUrl string, apiServerUrl string) (*telego.Bot, error) {
 	// Validate proxy URL if provided
 	if proxyUrl != "" {
 		if !isSupportedBotProxyScheme(proxyUrl) {
@@ -501,10 +479,7 @@ func (t *Tgbot) NewBot(token string, proxyUrl string, apiServerUrl string, stopp
 
 	// Build bot options
 	var options []telego.BotOption
-	options = append(options, telego.WithAPICaller(stoppableCaller{
-		inner:   ta.FastHTTPCaller{Client: client},
-		stopped: stopped,
-	}))
+	options = append(options, telego.WithFastHTTPClient(client))
 
 	if apiServerUrl != "" {
 		options = append(options, telego.WithAPIServer(apiServerUrl))
@@ -616,13 +591,6 @@ func StopBot() {
 	botHandler = nil
 	isRunning = false
 	tgBotMutex.Unlock()
-
-	botMu.Lock()
-	if botStop != nil {
-		close(botStop)
-		botStop = nil
-	}
-	botMu.Unlock()
 
 	userStateMgr.reset()
 	addClientDrafts.resetAll()

@@ -22,18 +22,18 @@ import (
 
 // screenHome is the admin's landing screen: the numbers you open the bot for,
 // then the menu, with the bot's avatar until the panel can host its own artwork.
-func (t *Tgbot) screenHome(chatID, userID int64, delivery ...screenDelivery) {
+func (t *Tgbot) screenHome(chatID, userID int64) {
 	if level := t.levelOf(userID); level != levelAdmin {
-		t.screenClientHome(chatID, userID, delivery...)
+		t.screenClientHome(chatID, userID)
 		return
 	}
 	body := t.homeSummary()
-	t.renderScreen(chatID, t.newScreen("main", body, t.homeRows()...), delivery...)
+	t.renderScreen(chatID, t.newScreen("main", body, t.homeRows()...))
 }
 
 // screenClientHome is a client's own entry point: its usage, then links and QR.
 // /start once gave clients the ADMIN menu (panel ops, every client's email).
-func (t *Tgbot) screenClientHome(chatID, userID int64, delivery ...screenDelivery) {
+func (t *Tgbot) screenClientHome(chatID, userID int64) {
 	traffics, err := t.inboundService.GetClientTrafficTgBot(userID)
 	if err != nil || len(traffics) == 0 {
 		t.sendNotice(chatID, t.I18nBot("tgbot.answers.askToAddUserId", "TgUserID=="+strconv.FormatInt(userID, 10)))
@@ -59,7 +59,7 @@ func (t *Tgbot) screenClientHome(chatID, userID int64, delivery ...screenDeliver
 			))
 		}
 	}
-	t.renderScreen(chatID, t.rootScreen("main", body.String(), rows...), delivery...)
+	t.renderScreen(chatID, t.rootScreen("main", body.String(), rows...))
 }
 
 // homeSummary is the panel overview line used by the menu and the report, so
@@ -91,13 +91,13 @@ func (t *Tgbot) homeSummary() string {
 }
 
 // screenServer renders the server-usage screen.
-func (t *Tgbot) screenServer(chatID int64, delivery ...screenDelivery) {
+func (t *Tgbot) screenServer(chatID int64) {
 	body := strings.TrimRight(t.prepareServerUsageInfo(), "\r\n")
 	rows := [][]telego.InlineKeyboardButton{
 		tu.InlineKeyboardRow(t.btn("tgbot.buttons.refresh", cbServer)),
 		t.backRow(),
 	}
-	t.renderScreen(chatID, t.newScreen("status", body, rows...), delivery...)
+	t.renderScreen(chatID, t.newScreen("status", body, rows...))
 }
 
 // screenOnlines lists who is connected right now; client names are plain text
@@ -235,7 +235,7 @@ func (t *Tgbot) screenReport(chatID int64) {
 		tu.InlineKeyboardRow(t.btn("tgbot.buttons.refresh", cbReport)),
 		t.backRow(),
 	}
-	t.renderScreen(chatID, t.newScreen("reports", report.String(), rows...))
+	t.renderScreen(chatID, t.newScreen("reports", html.EscapeString(report.String()), rows...))
 }
 
 // screenCommands explains the classic commands; kept because muscle memory is
@@ -266,11 +266,11 @@ func (t *Tgbot) sendBackupScreen(chatID int64) {
 	// carries the backup and what it is for.
 	body := summary + "\n\n" + t.depleteReport()
 	caption := trimCaption(body, botCaptionLimit)
-	if t.sendBackupFile(chatID, dbData, t.serverService.BackupFilename(""), caption) {
+	if t.sendDocumentWithCaption(chatID, dbData, t.serverService.BackupFilename(""), caption) {
 		// The generated config travels with the DB on both backup paths: an
 		// operator restoring from the file would otherwise lose it silently.
 		if config, err := os.ReadFile(xray.GetConfigPath()); err == nil {
-			t.sendBackupFile(chatID, config, "config.json", "")
+			t.sendDocumentWithCaption(chatID, config, "config.json", "")
 		}
 		if rest := strings.TrimSpace(strings.TrimPrefix(body, caption)); rest != "" {
 			// Rare: the summary outgrew a caption. The file already landed.
@@ -314,47 +314,25 @@ func (t *Tgbot) sendNoticeReturningID(chatID int64, text string) int {
 	return sent.MessageID
 }
 
-// sendBanLogsFile delivers previous and current banned-IP logs with hide buttons.
+// sendBanLogsFile delivers the banned-IP log as a notice with a hide button.
 func (t *Tgbot) sendBanLogsFile(chatID int64) {
-	bot := liveBot()
-	if bot == nil {
+	file, err := os.Open(xray.GetIPLimitBannedPrevLogPath())
+	if err != nil {
+		t.sendNotice(chatID, t.I18nBot("tgbot.noResult"))
 		return
 	}
-	hasLogs := false
-	for _, path := range []string{xray.GetIPLimitBannedPrevLogPath(), xray.GetIPLimitBannedLogPath()} {
-		// Scope cleanup to each file so neither the handle nor the timeout lives
-		// through the next upload.
-		func() {
-			file, err := os.Open(path)
-			if err != nil {
-				logger.Warning("Failed to open the ban log:", path, "-", err)
-				return
-			}
-			defer file.Close()
-			info, err := file.Stat()
-			if err != nil {
-				logger.Warning("Failed to stat the ban log:", path, "-", err)
-				return
-			}
-			if !info.Mode().IsRegular() || info.Size() == 0 {
-				logger.Warning("Ban log is empty or not a regular file, not uploading:", path)
-				return
-			}
-			// An upload failure does not mean the log was empty or missing.
-			hasLogs = true
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			_, err = bot.SendDocument(ctx, &telego.SendDocumentParams{
-				ChatID: tu.ID(chatID), MessageThreadID: adminTopic(chatID),
-				Document:    tu.File(file),
-				ReplyMarkup: t.hideButton(),
-			})
-			if err != nil {
-				logger.Warning("Failed to upload the ban log:", path, "-", err)
-			}
-		}()
+	defer file.Close()
+	if liveBot() == nil {
+		return
 	}
-	if !hasLogs {
-		t.sendNotice(chatID, t.I18nBot("tgbot.noResult"))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, err = liveBot().SendDocument(ctx, &telego.SendDocumentParams{
+		ChatID: tu.ID(chatID), MessageThreadID: adminTopic(chatID),
+		Document:    tu.File(file),
+		ReplyMarkup: t.hideButton(),
+	})
+	if err != nil {
+		logger.Warning("Failed to upload the ban log:", err)
 	}
 }

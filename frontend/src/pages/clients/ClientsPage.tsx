@@ -1305,7 +1305,6 @@ export default function ClientsPage() {
         <Layout className="content-shell">
           <Layout.Content id="content-layout" className="content-area">
             <Spin
-              aria-live="off"
               spinning={!fetched || !hostsFetched}
               delay={200}
               description={t('loading')}
@@ -1725,7 +1724,7 @@ export default function ClientsPage() {
                           }}
                         />
                       ) : (
-                        <Spin aria-live="off" spinning={transitioning}>
+                        <Spin spinning={transitioning}>
                           <div className="client-cards">
                             {filteredClients.length > 0 && (
                               <div className="card-bulk-bar">

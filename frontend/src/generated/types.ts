@@ -426,7 +426,7 @@ export interface Client {
   enable: boolean;
   expiryTime: number;
   flow?: string;
-  forwardedPorts?: string | null;
+  forwardedPorts?: string;
   group?: string;
   id?: string;
   keepAlive?: number | string;

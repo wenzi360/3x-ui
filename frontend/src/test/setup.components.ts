@@ -3,7 +3,6 @@ import { cleanup } from '@testing-library/react';
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
-import { INTERPOLATION } from '@/i18n/react';
 import enUS from '../../../internal/web/translation/en-US.json';
 
 // RTL sets this from a global beforeAll, which never runs with `globals: false`.
@@ -76,7 +75,7 @@ if (!i18next.isInitialized) {
     lng: 'en-US',
     fallbackLng: 'en-US',
     resources: { 'en-US': { translation: enUS } },
-    interpolation: INTERPOLATION,
+    interpolation: { escapeValue: false, prefix: '{', suffix: '}' },
     returnNull: false,
   });
 }
@@ -110,9 +109,6 @@ import { HttpUtil, Msg } from '@/utils';
 vi.spyOn(HttpUtil, 'post').mockResolvedValue({ success: true, obj: {} } as any);
 // Array-returning endpoints must resolve to [] so Zod list schemas validate.
 vi.spyOn(HttpUtil, 'get').mockImplementation(async (url: string) => {
-  const isList =
-    url.includes('/panel/api/inbounds/options') ||
-    url.includes('/panel/api/hosts/') ||
-    url.endsWith('/fallbacks');
+  const isList = url.includes('/panel/api/inbounds/options') || url.includes('/panel/api/hosts/');
   return new Msg(true, '', isList ? [] : {});
 });

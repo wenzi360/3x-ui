@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
-	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 )
 
 type TuicServerSettings struct {
@@ -74,7 +73,7 @@ func (inst Instance) StructuralFingerprint() string {
 
 func fingerprintMaterial(value string) string {
 	material := []byte(value)
-	if value != "" && !strings.Contains(value, "-----BEGIN ") && xray.CheckCertFile(value) == nil {
+	if value != "" && !strings.Contains(value, "-----BEGIN ") {
 		if file, err := os.ReadFile(value); err == nil {
 			material = file
 		}

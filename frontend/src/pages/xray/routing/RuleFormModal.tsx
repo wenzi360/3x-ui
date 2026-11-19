@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Button, Form, Input, Modal, Select, Space, Switch } from 'antd';
 import { PlusOutlined, MinusOutlined } from '@ant-design/icons';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
-import { selectTagRender } from '@/components/form';
 import { InputAddon } from '@/components/ui';
 import { GeoTokenInput } from '@/components/geodata';
 import { FormField } from '@/components/form/rhf';
@@ -223,11 +222,7 @@ export default function RuleFormModal({
           </FormField>
 
           <FormField name="protocol" label={t('pages.inbounds.protocol')}>
-            <Select
-              mode="multiple"
-              tagRender={selectTagRender}
-              options={PROTOCOLS.map((p) => ({ value: p, label: p }))}
-            />
+            <Select mode="multiple" options={PROTOCOLS.map((p) => ({ value: p, label: p }))} />
           </FormField>
 
           <Form.Item label={t('pages.xray.ruleForm.attributes')}>
@@ -297,7 +292,6 @@ export default function RuleFormModal({
           >
             <Select
               mode="tags"
-              tagRender={selectTagRender}
               tokenSeparators={[',']}
               allowClear
               loading={clientsLoading}
@@ -325,7 +319,6 @@ export default function RuleFormModal({
           <FormField name="inboundTag" label={t('pages.xray.ruleForm.inboundTags')}>
             <Select
               mode="multiple"
-              tagRender={selectTagRender}
               options={inboundTags.map((tag) => ({
                 value: tag,
                 label: formatInboundTag(tag, remarkByTag),

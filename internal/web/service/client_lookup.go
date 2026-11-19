@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -248,26 +247,14 @@ func (s *ClientService) HasPendingNode(inboundSvc *InboundService, email string)
 	return inboundSvc.AnyNodePending(ids)
 }
 
-const settingsProbeBytes = 64
-
 // findInboundIdsByClientEmail returns every inbound whose settings.clients[]
 // JSON contains an entry with the given email. Driver-portable (no JSON
 // operators) by parsing in Go — fine for the rare fallback path.
 func (s *ClientService) findInboundIdsByClientEmail(email string) ([]int, error) {
-	// A literal, bounded probe: the email comes from a request, and LIKE costs the settings
-	// length times the pattern length; the exact match below decides.
-	probe := email
-	if len(probe) > settingsProbeBytes {
-		cut := settingsProbeBytes
-		for cut > 0 && !utf8.RuneStart(probe[cut]) {
-			cut--
-		}
-		probe = probe[:cut]
-	}
 	var inbounds []model.Inbound
 	if err := database.GetDB().
 		Select("id, settings").
-		Where("settings LIKE ? ESCAPE '\\'", "%"+escapeLikeLiteral(probe)+"%").
+		Where("settings LIKE ?", "%"+email+"%").
 		Find(&inbounds).Error; err != nil {
 		return nil, err
 	}

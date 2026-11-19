@@ -13,7 +13,6 @@ import (
 // #6559: the Master panel must send a stable X-HWID when fetching external
 // subscriptions, otherwise an HWID-limited donor answers 404.
 func TestFetchSendsStableHwid(t *testing.T) {
-	allowLoopbackProvider(t)
 	dbtest.InitDB(t, filepath.Join(t.TempDir(), "x-ui.db"))
 
 	var gotHwid string

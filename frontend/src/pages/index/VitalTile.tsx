@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { Card, theme } from 'antd';
 
@@ -31,7 +31,6 @@ export default function VitalTile({
   isMobile,
 }: VitalTileProps) {
   const { token } = theme.useToken();
-  const labelId = useId();
   const meanColor = token.colorTextTertiary;
 
   const referenceLines = useMemo(
@@ -40,18 +39,10 @@ export default function VitalTile({
   );
 
   return (
-    <Card
-      hoverable
-      className="ov-tile"
-      styles={{ body: { padding: 0 } }}
-      role="group"
-      aria-labelledby={labelId}
-    >
+    <Card hoverable className="ov-tile" styles={{ body: { padding: 0 } }}>
       <div className="ov-tile-head">
         <span className="ov-tile-icon">{icon}</span>
-        <span className="ov-kicker" id={labelId}>
-          {label}
-        </span>
+        <span className="ov-kicker">{label}</span>
       </div>
 
       <div className="ov-tile-value">

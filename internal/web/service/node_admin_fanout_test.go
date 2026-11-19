@@ -85,7 +85,7 @@ func TestResetAllTrafficsReachesNodesConcurrently(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = (&InboundService{}).ResetAllTraffics()
+		_ = (&InboundService{}).ResetAllTraffics()
 	}()
 	t.Cleanup(func() { gate.open(); <-done })
 	gate.waitAll(t, 3, "ResetAllTraffics")

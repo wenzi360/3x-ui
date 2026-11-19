@@ -59,16 +59,8 @@ func (s *FallbackService) GetParentForChild(childId int) (*model.InboundFallback
 
 // SetByMaster replaces the master's entire fallback list atomically.
 func (s *FallbackService) SetByMaster(masterId int, items []FallbackInput) error {
-	return runSerializedTx(func(tx *gorm.DB) error {
-		if len(items) > 0 {
-			var master model.Inbound
-			if err := tx.First(&master, masterId).Error; err != nil {
-				return err
-			}
-			if !inboundCanHostFallbacks(&master) {
-				return fmt.Errorf("inbound %d cannot host fallbacks: use TCP with TLS/REALITY and disable VLESS decryption first", masterId)
-			}
-		}
+	db := database.GetDB()
+	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("master_id = ?", masterId).Delete(&model.InboundFallback{}).Error; err != nil {
 			return err
 		}

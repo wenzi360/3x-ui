@@ -109,7 +109,7 @@ func Preflight(inst amneziawg.Instance, routeThroughXray bool) error {
 	blockers := append([]Blocker(nil), HostReadiness().Blockers...)
 	blockers = append(blockers, instanceFeatureBlockers(inst, routeThroughXray)...)
 	if len(blockers) == 0 {
-		return ValidatePeerSubnets(inst)
+		return nil
 	}
 	return fmt.Errorf("kernel mode unavailable: %s", strings.Join(describe(blockers), "; "))
 }

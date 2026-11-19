@@ -4,7 +4,6 @@ import { expect } from 'storybook/test';
 import { Select } from 'antd';
 
 import SelectAllClearButtons from './SelectAllClearButtons';
-import { selectTagRender } from './SelectTag';
 
 const inboundOptions: Array<{ value: number; label: string }> = [
   { value: 1, label: 'VLESS Reality — 443' },
@@ -65,13 +64,13 @@ function InboundPickerDemo() {
       <SelectAllClearButtons options={inboundOptions} value={selected} onChange={setSelected} />
       <Select
         mode="multiple"
-        tagRender={selectTagRender}
         style={{ width: '100%' }}
         value={selected}
         onChange={setSelected}
         options={inboundOptions}
         placeholder="Select inbounds"
         aria-label="Select inbounds"
+        maxTagCount="responsive"
       />
     </div>
   );
@@ -90,13 +89,13 @@ function ClientEmailsDemo() {
       />
       <Select
         mode="multiple"
-        tagRender={selectTagRender}
         style={{ width: '100%' }}
         value={selected}
         onChange={setSelected}
         options={clientEmailOptions}
         placeholder="Select clients"
         aria-label="Select clients"
+        maxTagCount="responsive"
       />
     </div>
   );

@@ -11,7 +11,6 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
-	"github.com/mhsanaei/3x-ui/v3/internal/web/locale"
 
 	"github.com/mymmrac/telego"
 )
@@ -71,7 +70,13 @@ func (t *Tgbot) claimInvite(chatId int64, fromID int64, payload string) inviteOu
 		return inviteInvalid
 	}
 
-	outcome, records, bindErr := t.resolveAndBindInvite(token, fromID)
+	inviteClaimMu.Lock()
+	outcome, records := t.resolveInviteToken(token, fromID)
+	var bindErr error
+	if outcome == inviteBindable {
+		bindErr = t.bindRecordsToUser(records, fromID)
+	}
+	inviteClaimMu.Unlock()
 
 	switch outcome {
 	case inviteAlreadyOwned:
@@ -89,18 +94,6 @@ func (t *Tgbot) claimInvite(chatId int64, fromID int64, payload string) inviteOu
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.messages.inviteInvalid"))
 	}
 	return outcome
-}
-
-// resolveAndBindInvite holds inviteClaimMu with a deferred unlock: the handler recovers panics,
-// and a lock a panic left held would park every later /start claim for good.
-func (t *Tgbot) resolveAndBindInvite(token string, fromID int64) (inviteOutcome, []*model.ClientRecord, error) {
-	inviteClaimMu.Lock()
-	defer inviteClaimMu.Unlock()
-	outcome, records := t.resolveInviteToken(token, fromID)
-	if outcome != inviteBindable {
-		return outcome, records, nil
-	}
-	return outcome, records, t.bindRecordsToUser(records, fromID)
 }
 
 func recordEmails(records []*model.ClientRecord) string {
@@ -204,8 +197,7 @@ func (t *Tgbot) allowInviteAttempt(from *telego.User) bool {
 	inviteAttemptsMu.Unlock()
 
 	if count == inviteAttemptLimit+1 {
-		// locale.I18n directly: User is a ready-made mention that I18nBot would escape.
-		t.SendMsgToTgbotAdmins(locale.I18n(locale.Bot, "tgbot.messages.inviteRateLimitedAdmin",
+		t.SendMsgToTgbotAdmins(t.I18nBot("tgbot.messages.inviteRateLimitedAdmin",
 			"User=="+tgUserMention(from),
 			"ID=="+strconv.FormatInt(from.ID, 10),
 			"Limit=="+strconv.Itoa(inviteAttemptLimit)))

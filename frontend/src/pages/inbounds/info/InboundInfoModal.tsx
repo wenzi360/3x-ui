@@ -69,9 +69,7 @@ export default function InboundInfoModal({
     if (!clientStats?.email) return;
     setRefreshing(true);
     try {
-      const msg = await HttpUtil.post(
-        `/panel/api/clients/ips/${encodeURIComponent(clientStats.email)}`,
-      );
+      const msg = await HttpUtil.post(`/panel/api/clients/ips/${clientStats.email}`);
       if (!msg?.success) {
         setClientIpsText((msg?.obj as string) || 'No IP record');
         setClientIpsArray([]);
@@ -103,9 +101,7 @@ export default function InboundInfoModal({
 
   const clearClientIps = useCallback(async () => {
     if (!clientStats?.email) return;
-    const msg = await HttpUtil.post(
-      `/panel/api/clients/clearIps/${encodeURIComponent(clientStats.email)}`,
-    );
+    const msg = await HttpUtil.post(`/panel/api/clients/clearIps/${clientStats.email}`);
     if (msg?.success) {
       setClientIpsArray([]);
       setClientIpsText(t('tgbot.noIpRecord'));
@@ -227,8 +223,7 @@ export default function InboundInfoModal({
     setClientIpsText('');
 
     if (ipLimitEnable && (clientSet?.limitIp ?? 0) > 0 && stats?.email) {
-      const email = encodeURIComponent(stats.email);
-      void HttpUtil.post(`/panel/api/clients/ips/${email}`).then((msg) => {
+      void HttpUtil.post(`/panel/api/clients/ips/${stats.email}`).then((msg) => {
         if (!msg?.success) {
           setClientIpsText((msg?.obj as string) || 'No IP record');
           return;

@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Modal, Tag, Tooltip } from 'antd';
+import { Button, Tag, Tooltip } from 'antd';
 import {
   ApiOutlined,
   ArrowUpOutlined,
@@ -11,7 +11,6 @@ import {
   CloudServerOutlined,
   ControlOutlined,
   FileTextOutlined,
-  PlayCircleOutlined,
   PoweroffOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -27,7 +26,7 @@ interface OverviewActionBarProps {
   panelVersion: string;
   latestVersion: string;
   updateAvailable: boolean;
-  onStopXray: () => void | Promise<void>;
+  onStopXray: () => void;
   onRestartXray: () => void;
   onOpenLogs: () => void;
   onOpenXrayLogs: () => void;
@@ -46,9 +45,6 @@ interface BarAction {
   text: string;
   onClick: () => void;
   primary?: boolean;
-  danger?: boolean;
-  disabled?: boolean;
-  hint?: string;
 }
 
 const XRAY_STATE_KEYS: Record<string, string> = {
@@ -77,18 +73,16 @@ export default function OverviewActionBar({
   onOpenVersionSwitch,
 }: OverviewActionBarProps) {
   const { t } = useTranslation();
-  const [modal, modalContextHolder] = Modal.useModal();
   const stateText = t(XRAY_STATE_KEYS[status.xray.state] ?? 'pages.index.xrayStatusUnknown');
   const hasVersion = !!status.xray.version && status.xray.version !== 'Unknown';
   const size = isMobile ? ('small' as const) : ('middle' as const);
-  const isStopped = status.xray.state === 'stop';
 
   const actionGroups: BarAction[][] = [
     [
       {
         key: 'restart',
-        icon: isStopped ? <PlayCircleOutlined aria-hidden /> : <ReloadOutlined aria-hidden />,
-        text: t(isStopped ? 'pages.index.startXray' : 'pages.index.restartXray'),
+        icon: <ReloadOutlined aria-hidden />,
+        text: t('pages.index.restartXray'),
         onClick: onRestartXray,
         primary: true,
       },
@@ -96,19 +90,7 @@ export default function OverviewActionBar({
         key: 'stop',
         icon: <PoweroffOutlined aria-hidden />,
         text: t('pages.index.stopXray'),
-        danger: true,
-        disabled: isStopped,
-        hint: isStopped ? t('pages.index.stopXrayDisabledHint') : undefined,
-        onClick: () =>
-          modal.confirm({
-            title: t('pages.index.stopXrayConfirmTitle'),
-            content: t('pages.index.stopXrayConfirmContent'),
-            okText: t('pages.index.stopXrayConfirmOk'),
-            okType: 'danger',
-            cancelText: t('cancel'),
-            focusable: { autoFocusButton: 'cancel' },
-            onOk: onStopXray,
-          }),
+        onClick: onStopXray,
       },
     ],
     [
@@ -183,7 +165,6 @@ export default function OverviewActionBar({
 
   return (
     <div className="ov-bar">
-      {modalContextHolder}
       {status.xray.errorMsg ? (
         <Tooltip title={<span className="ov-error-detail">{status.xray.errorMsg}</span>}>
           {statePill}
@@ -223,21 +204,18 @@ export default function OverviewActionBar({
           <Fragment key={group[0].key}>
             {groupIndex > 0 && <span className="ov-bar-sep" />}
             {group.map((action) => (
-              <Tooltip key={action.key} title={action.hint}>
-                <Button
-                  type={action.primary ? undefined : 'text'}
-                  color={action.primary ? 'primary' : undefined}
-                  variant={action.primary ? 'outlined' : undefined}
-                  size={size}
-                  danger={action.danger}
-                  disabled={action.disabled}
-                  icon={action.icon}
-                  aria-label={action.text}
-                  onClick={action.onClick}
-                >
-                  {isMobile ? undefined : action.text}
-                </Button>
-              </Tooltip>
+              <Button
+                key={action.key}
+                type={action.primary ? undefined : 'text'}
+                color={action.primary ? 'primary' : undefined}
+                variant={action.primary ? 'outlined' : undefined}
+                size={size}
+                icon={action.icon}
+                aria-label={action.text}
+                onClick={action.onClick}
+              >
+                {isMobile ? undefined : action.text}
+              </Button>
             ))}
           </Fragment>
         ))}

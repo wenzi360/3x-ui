@@ -10,10 +10,8 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"net"
 	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -32,10 +30,6 @@ type ParseResult struct {
 	Outbound Outbound
 	Identity string
 }
-
-// MaxSubscriptionOutbounds caps the outbounds one document yields: each is held, validated
-// and merged into the core's config, and the byte cap alone allows hundreds of thousands.
-const MaxSubscriptionOutbounds = 2000
 
 // ParseSubscriptionBody accepts the raw body returned by a subscription URL.
 // It handles the common case where the body is a base64-encoded blob of
@@ -59,9 +53,6 @@ func ParseSubscriptionBody(body []byte) ([]Outbound, []string, error) {
 	seen := map[string]int{}
 
 	for _, ln := range lines {
-		if len(outbounds) >= MaxSubscriptionOutbounds {
-			break
-		}
 		ln = strings.TrimSpace(ln)
 		if ln == "" || strings.HasPrefix(ln, "#") {
 			continue
@@ -127,43 +118,7 @@ func splitLines(s string) []string {
 //   - hysteria2:// (also hy2://)
 //   - wireguard:// (also wg://)
 func ParseLink(link string) (*ParseResult, error) {
-	res, err := parseLinkByScheme(strings.TrimSpace(link))
-	if err != nil {
-		return nil, err
-	}
-	dropHostLocalKeys(res.Outbound)
-	if !nestsWithin(map[string]any(res.Outbound), maxOutboundDepth) {
-		return nil, fmt.Errorf("link nests JSON deeper than %d levels", maxOutboundDepth)
-	}
-	return res, nil
-}
-
-// maxOutboundDepth bounds the JSON a link can nest into its outbound (the deepest real shape,
-// an xhttp download stream's finalmask, is about 11): pretty-printing costs depth squared.
-const maxOutboundDepth = 16
-
-func nestsWithin(v any, depth int) bool {
-	if depth < 0 {
-		return false
-	}
-	switch v := v.(type) {
-	case map[string]any:
-		for _, child := range v {
-			if !nestsWithin(child, depth-1) {
-				return false
-			}
-		}
-	case []any:
-		for _, child := range v {
-			if !nestsWithin(child, depth-1) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func parseLinkByScheme(link string) (*ParseResult, error) {
+	link = strings.TrimSpace(link)
 	switch {
 	case strings.HasPrefix(link, "vmess://"):
 		return parseVmess(link)
@@ -182,40 +137,21 @@ func parseLinkByScheme(link string) (*ParseResult, error) {
 	}
 }
 
-// hostLocalKeys redirect the core's dial or name files on the importing host; extra=, fm= and
-// vmess JSON copy provider keys verbatim, and the core binds keys case-folded.
-var hostLocalKeys = []string{"dialerProxy", "certificateFile", "keyFile", "masterKeyLog"}
-
-func dropHostLocalKeys(v any) {
-	switch v := v.(type) {
-	case map[string]any:
-		for key, child := range v {
-			if slices.ContainsFunc(hostLocalKeys, func(k string) bool { return strings.EqualFold(k, key) }) {
-				delete(v, key)
-				continue
-			}
-			dropHostLocalKeys(child)
-		}
-	case Outbound:
-		dropHostLocalKeys(map[string]any(v))
-	case []any:
-		for _, child := range v {
-			dropHostLocalKeys(child)
-		}
-	}
-}
-
 // --- vmess ---
 
 func parseVmess(link string) (*ParseResult, error) {
 	b64 := strings.TrimPrefix(link, "vmess://")
-	// vmess:// base64(json), standard or URL-safe, padded or not
-	raw, err := base64DecodeFlexible(b64)
+	// vmess:// base64(json)
+	raw, err := base64.StdEncoding.DecodeString(padBase64(b64))
+	if err != nil {
+		// Some providers use raw URL-safe
+		raw, err = base64.RawURLEncoding.DecodeString(b64)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("vmess decode: %w", err)
 	}
 	var j map[string]any
-	if err := json.Unmarshal([]byte(raw), &j); err != nil {
+	if err := json.Unmarshal(raw, &j); err != nil {
 		return nil, fmt.Errorf("vmess json: %w", err)
 	}
 
@@ -388,7 +324,7 @@ func parseVless(link string) (*ParseResult, error) {
 
 	ob := Outbound{
 		"protocol": "vless",
-		"tag":      decodeHash(u.EscapedFragment()),
+		"tag":      decodeHash(u.Fragment),
 		"settings": map[string]any{
 			"address":    host,
 			"port":       port,
@@ -430,7 +366,7 @@ func parseTrojan(link string) (*ParseResult, error) {
 
 	ob := Outbound{
 		"protocol": "trojan",
-		"tag":      decodeHash(u.EscapedFragment()),
+		"tag":      decodeHash(u.Fragment),
 		"settings": map[string]any{
 			"servers": []any{
 				map[string]any{"address": host, "port": port, "password": pw},
@@ -635,7 +571,7 @@ func parseHysteria2(link string) (*ParseResult, error) {
 
 	ob := Outbound{
 		"protocol":       "hysteria",
-		"tag":            decodeHash(u.EscapedFragment()),
+		"tag":            decodeHash(u.Fragment),
 		"settings":       map[string]any{"address": host, "port": port, "version": 2},
 		"streamSettings": stream,
 	}
@@ -658,7 +594,7 @@ func parseWireguard(link string) (*ParseResult, error) {
 	portStr := u.Port()
 	endpoint := host
 	if portStr != "" {
-		endpoint = net.JoinHostPort(host, portStr)
+		endpoint = host + ":" + portStr
 	}
 
 	addrRaw := firstParam(params, "address", "ip")
@@ -713,7 +649,7 @@ func parseWireguard(link string) (*ParseResult, error) {
 
 	ob := Outbound{
 		"protocol": "wireguard",
-		"tag":      decodeHash(u.EscapedFragment()),
+		"tag":      decodeHash(u.Fragment),
 		"settings": settings,
 	}
 	return &ParseResult{Outbound: ob, Identity: identity}, nil
@@ -1280,8 +1216,6 @@ func base64DecodeFlexible(s string) (string, error) {
 // replacing every other run of characters with a single dash.
 var slugRe = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
-const maxSlugRunes = 64
-
 func SlugRemark(remark string) string {
 	s := strings.ToLower(strings.TrimSpace(remark))
 	s = slugRe.ReplaceAllString(s, "-")
@@ -1292,10 +1226,6 @@ func SlugRemark(remark string) string {
 	// collapse runs of dashes
 	for strings.Contains(s, "--") {
 		s = strings.ReplaceAll(s, "--", "-")
-	}
-	// The tag names Xray counters, a traffic row and the config; a link author picks the remark.
-	if r := []rune(s); len(r) > maxSlugRunes {
-		s = strings.TrimRight(string(r[:maxSlugRunes]), "-")
 	}
 	return s
 }

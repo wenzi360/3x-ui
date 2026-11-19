@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -118,15 +117,16 @@ func allocateWireguardAddress(used []string, base string, allowWidening bool) (s
 			wide = append(wide, p)
 		}
 	}
-	// wideClaimOf returns a wide claim holding a, so the scan can step over the whole claim:
-	// a node may report one spanning the scope, and walking it is 2^64 steps in IPv6.
-	wideClaimOf := func(a netip.Addr) (netip.Prefix, bool) {
+	isTaken := func(a netip.Addr) bool {
+		if _, ok := taken[a]; ok {
+			return true
+		}
 		for _, p := range wide {
 			if p.Contains(a) {
-				return p, true
+				return true
 			}
 		}
-		return netip.Prefix{}, false
+		return false
 	}
 	scopes := []netip.Prefix{prefix}
 	if allowWidening && prefix.Addr().Is4() && prefix.Bits() > wireguardPoolFloorBits {
@@ -136,29 +136,14 @@ func allocateWireguardAddress(used []string, base string, allowWidening bool) (s
 	}
 	for _, scope := range scopes {
 		addr := scope.Masked().Addr().Next().Next()
-		for addr.IsValid() && scope.Contains(addr) {
-			if _, ok := taken[addr]; ok {
-				addr = addr.Next()
-				continue
+		for scope.Contains(addr) {
+			if !isTaken(addr) {
+				return addr.String() + "/" + hostBits, nil
 			}
-			if claim, ok := wideClaimOf(addr); ok {
-				addr = lastPrefixAddr(claim).Next()
-				continue
-			}
-			return addr.String() + "/" + hostBits, nil
+			addr = addr.Next()
 		}
 	}
 	return "", common.NewError("wireguard: no free address available in", scopes[len(scopes)-1].String())
-}
-
-// lastPrefixAddr is the highest address of p.
-func lastPrefixAddr(p netip.Prefix) netip.Addr {
-	bytes := p.Masked().Addr().AsSlice()
-	for bit := p.Bits(); bit < len(bytes)*8; bit++ {
-		bytes[bit/8] |= 0x80 >> (bit % 8)
-	}
-	addr, _ := netip.AddrFromSlice(bytes)
-	return addr
 }
 
 // normalizeWireguardAllowedIPs validates user-supplied allowedIPs entries and
@@ -189,9 +174,9 @@ func normalizeWireguardAllowedIPs(values []string) ([]string, error) {
 	return out, nil
 }
 
-// parseWireguardAllowedIP reads an allowedIPs entry unmasked, a bare address as
-// a single host.
-func parseWireguardAllowedIP(s string) (netip.Prefix, bool) {
+// wireguardClaimedPrefix is the masked range an allowedIPs entry claims, as xray
+// reads it. A /0 default route claims no tunnel address, as legacy peers carry it.
+func wireguardClaimedPrefix(s string) (netip.Prefix, bool) {
 	s = strings.TrimSpace(s)
 	p, err := netip.ParsePrefix(s)
 	if err != nil {
@@ -201,35 +186,14 @@ func parseWireguardAllowedIP(s string) (netip.Prefix, bool) {
 		}
 		p = netip.PrefixFrom(a, a.BitLen())
 	}
-	return p, true
-}
-
-// isWireguardDefaultRoute reports whether an allowedIPs entry carries a /0 mask.
-func isWireguardDefaultRoute(s string) bool {
-	p, ok := parseWireguardAllowedIP(s)
-	return ok && p.Bits() == 0
-}
-
-// wireguardClaimedPrefix is the range a stored allowedIPs entry keeps other clients
-// out of. Only a 0.0.0.0/0 or ::/0 default route claims nothing (legacy peers carry it).
-func wireguardClaimedPrefix(s string) (netip.Prefix, bool) {
-	p, ok := parseWireguardAllowedIP(s)
-	if !ok {
-		return netip.Prefix{}, false
-	}
 	if p.Bits() == 0 {
-		if p.Addr().IsUnspecified() {
-			return netip.Prefix{}, false
-		}
-		// The host bits are stored with it and read back as the peer's tunnel
-		// address (amneziawg.FirstIPv4 / FirstIPv6), so they are what it claims.
-		return netip.PrefixFrom(p.Addr(), p.Addr().BitLen()), true
+		return netip.Prefix{}, false
 	}
 	return p.Masked(), true
 }
 
-// wireguardAllowedIPsOverlap returns the first entry whose whole range (a /0 holds its entire
-// family) overlaps a used one, and that entry; xray routes by containment, not equality.
+// wireguardAllowedIPsOverlap returns the first entry whose range overlaps a used
+// one, and that used entry; xray routes and attributes by containment, not equality.
 func wireguardAllowedIPsOverlap(entries, used []string) (entry, taken string) {
 	usedPrefixes := make([]netip.Prefix, len(used))
 	usedOK := make([]bool, len(used))
@@ -237,11 +201,10 @@ func wireguardAllowedIPsOverlap(entries, used []string) (entry, taken string) {
 		usedPrefixes[i], usedOK[i] = wireguardClaimedPrefix(u)
 	}
 	for _, e := range entries {
-		ep, ok := parseWireguardAllowedIP(e)
+		ep, ok := wireguardClaimedPrefix(e)
 		if !ok {
 			continue
 		}
-		ep = ep.Masked()
 		for i, up := range usedPrefixes {
 			if usedOK[i] && ep.Overlaps(up) {
 				return e, used[i]
@@ -249,14 +212,6 @@ func wireguardAllowedIPsOverlap(entries, used []string) (entry, taken string) {
 		}
 	}
 	return "", ""
-}
-
-// withoutKeptDefaultRoutes drops the /0 entries stored already holds: an edit that
-// echoes a legacy peer's default route claims nothing new and must stay possible.
-func withoutKeptDefaultRoutes(entries, stored []string) []string {
-	return slices.DeleteFunc(slices.Clone(entries), func(e string) bool {
-		return isWireguardDefaultRoute(e) && slices.Contains(stored, e)
-	})
 }
 
 // defaultWireguardClients fills in blank WireGuard credentials for newly added

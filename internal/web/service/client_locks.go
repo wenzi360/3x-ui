@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -169,76 +168,46 @@ func isClientEmailTombstoned(email string) bool {
 	return true
 }
 
-// settingsClientEntry is what these rewrites read of a client entry. A node's blob may
-// nest any value deeply, so entries stay raw text and only these fields are decoded.
-type settingsClientEntry struct {
-	Email      string          `json:"email"`
-	SubID      json.RawMessage `json:"subId"`
-	ExpiryTime json.RawMessage `json:"expiryTime"`
-	Enable     json.RawMessage `json:"enable"`
-}
-
-// splitSettingsClients decodes a settings blob one level deep; ok is false when it has
-// no client array to work on.
-func splitSettingsClients(settings string) (members map[string]json.RawMessage, entries []json.RawMessage, ok bool) {
-	if settings == "" || json.Unmarshal([]byte(settings), &members) != nil {
-		return nil, nil, false
-	}
-	if json.Unmarshal(members["clients"], &entries) != nil {
-		return nil, nil, false
-	}
-	return members, entries, true
-}
-
-func readSettingsClient(entry json.RawMessage) (settingsClientEntry, bool) {
-	var c settingsClientEntry
-	if len(entry) == 0 || entry[0] != '{' || json.Unmarshal(entry, &c) != nil {
-		return c, false
-	}
-	return c, true
-}
-
-// joinSettingsClients writes the blob back compactly; indenting it again would cost the
-// square of whatever depth the node nested into it.
-func joinSettingsClients(settings string, members map[string]json.RawMessage, entries []json.RawMessage) (string, bool) {
-	clients, err := json.Marshal(entries)
-	if err != nil {
-		return settings, false
-	}
-	members["clients"] = clients
-	b, err := json.Marshal(members)
-	if err != nil {
-		return settings, false
-	}
-	return string(b), true
-}
-
 // dedupeSettingsClients collapses duplicate same-email client entries inside a
 // settings JSON blob, keeping the first occurrence. Node snapshots produced by
 // builds without the addInboundClient duplicate guard can carry duplicates
 // (#5770); adopting them verbatim would copy the duplication into the central
 // inbound. Returns the filtered JSON and whether anything was removed.
 func dedupeSettingsClients(settings string) (string, bool) {
-	members, entries, ok := splitSettingsClients(settings)
-	if !ok || len(entries) < 2 {
+	if settings == "" {
 		return settings, false
 	}
-	seen := make(map[string]struct{}, len(entries))
-	kept := make([]json.RawMessage, 0, len(entries))
-	for _, entry := range entries {
-		if c, ok := readSettingsClient(entry); ok && c.Email != "" {
-			key := strings.ToLower(c.Email)
-			if _, dup := seen[key]; dup {
-				continue
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
+		return settings, false
+	}
+	clients, _ := parsed["clients"].([]any)
+	if len(clients) < 2 {
+		return settings, false
+	}
+	seen := make(map[string]struct{}, len(clients))
+	kept := make([]any, 0, len(clients))
+	for _, c := range clients {
+		if cm, ok := c.(map[string]any); ok {
+			if email, _ := cm["email"].(string); email != "" {
+				key := strings.ToLower(email)
+				if _, dup := seen[key]; dup {
+					continue
+				}
+				seen[key] = struct{}{}
 			}
-			seen[key] = struct{}{}
 		}
-		kept = append(kept, entry)
+		kept = append(kept, c)
 	}
-	if len(kept) == len(entries) {
+	if len(kept) == len(clients) {
 		return settings, false
 	}
-	return joinSettingsClients(settings, members, kept)
+	parsed["clients"] = kept
+	b, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return settings, false
+	}
+	return string(b), true
 }
 
 // stripTombstonedClients drops just-deleted client entries from a node
@@ -246,98 +215,125 @@ func dedupeSettingsClients(settings string) (string, bool) {
 // the central inbound while the delete tombstone is live. Returns the filtered
 // JSON and whether anything was removed.
 func stripTombstonedClients(settings string) (string, bool) {
-	members, entries, ok := splitSettingsClients(settings)
-	if !ok || len(entries) == 0 {
+	if settings == "" {
 		return settings, false
 	}
-	kept := make([]json.RawMessage, 0, len(entries))
-	for _, entry := range entries {
-		if c, ok := readSettingsClient(entry); ok && c.Email != "" && isClientEmailTombstoned(c.Email) {
-			continue
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
+		return settings, false
+	}
+	clients, _ := parsed["clients"].([]any)
+	if len(clients) == 0 {
+		return settings, false
+	}
+	kept := make([]any, 0, len(clients))
+	for _, c := range clients {
+		if cm, ok := c.(map[string]any); ok {
+			if email, _ := cm["email"].(string); email != "" && isClientEmailTombstoned(email) {
+				continue
+			}
 		}
-		kept = append(kept, entry)
+		kept = append(kept, c)
 	}
-	if len(kept) == len(entries) {
+	if len(kept) == len(clients) {
 		return settings, false
 	}
-	return joinSettingsClients(settings, members, kept)
+	parsed["clients"] = kept
+	b, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return settings, false
+	}
+	return string(b), true
 }
 
 // liftClientLifecycleInSettings rewrites adopted settings from master traffic
 // so a lagging node blob cannot store pre-extension expiry/enable (#6228).
 func liftClientLifecycleInSettings(settings string, trafficByEmail map[string]*xray.ClientTraffic) (string, bool) {
-	if len(trafficByEmail) == 0 {
+	if settings == "" || len(trafficByEmail) == 0 {
 		return settings, false
 	}
-	members, entries, ok := splitSettingsClients(settings)
-	if !ok || len(entries) == 0 {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
+		return settings, false
+	}
+	clients, _ := parsed["clients"].([]any)
+	if len(clients) == 0 {
 		return settings, false
 	}
 	changed := false
-	for i, entry := range entries {
-		c, ok := readSettingsClient(entry)
-		if !ok || c.Email == "" {
+	for i := range clients {
+		cm, ok := clients[i].(map[string]any)
+		if !ok {
 			continue
 		}
-		tr := trafficByEmail[c.Email]
+		email, _ := cm["email"].(string)
+		if email == "" {
+			continue
+		}
+		tr := trafficByEmail[email]
 		if tr == nil {
 			continue
 		}
-		nodeExpiry, hasExpiry := jsonClientInt64(c.ExpiryTime)
+		nodeExpiry, hasExpiry := jsonClientInt64(cm["expiryTime"])
 		if !hasExpiry {
 			continue
 		}
 		merged := mergeActivationExpiry(tr.ExpiryTime, nodeExpiry)
-		var nodeEnable bool
-		_ = json.Unmarshal(c.Enable, &nodeEnable)
+		if merged != nodeExpiry {
+			cm["expiryTime"] = merged
+			changed = true
+		}
 		// tr is the already-merged master row, authoritative in both directions:
 		// a lagging blob must not re-enable a disabled client either (#4917).
-		if merged == nodeExpiry && nodeEnable == tr.Enable {
-			continue
+		if nodeEnable, _ := cm["enable"].(bool); nodeEnable != tr.Enable {
+			cm["enable"] = tr.Enable
+			changed = true
 		}
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(entry, &fields) != nil {
-			continue
-		}
-		fields["expiryTime"] = json.RawMessage(strconv.FormatInt(merged, 10))
-		fields["enable"] = json.RawMessage(strconv.FormatBool(tr.Enable))
-		rewritten, err := json.Marshal(fields)
-		if err != nil {
-			continue
-		}
-		entries[i] = rewritten
-		changed = true
+		clients[i] = cm
 	}
 	if !changed {
 		return settings, false
 	}
-	return joinSettingsClients(settings, members, entries)
+	parsed["clients"] = clients
+	b, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return settings, false
+	}
+	return string(b), true
 }
 
 // settingsClientAbsoluteExpiries indexes the absolute (>0) expiryTime of every
 // client in a settings blob. Never nil, so callers can cache it per inbound.
 func settingsClientAbsoluteExpiries(settings string) map[string]int64 {
 	out := map[string]int64{}
-	_, entries, ok := splitSettingsClients(settings)
-	if !ok {
+	if settings == "" {
 		return out
 	}
-	for _, entry := range entries {
-		c, ok := readSettingsClient(entry)
-		if !ok || c.Email == "" {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(settings), &parsed); err != nil {
+		return out
+	}
+	clients, _ := parsed["clients"].([]any)
+	for _, c := range clients {
+		cm, ok := c.(map[string]any)
+		if !ok {
 			continue
 		}
-		if exp, has := jsonClientInt64(c.ExpiryTime); has && exp > 0 {
-			out[c.Email] = exp
+		email, _ := cm["email"].(string)
+		if email == "" {
+			continue
+		}
+		if exp, has := jsonClientInt64(cm["expiryTime"]); has && exp > 0 {
+			out[email] = exp
 		}
 	}
 	return out
 }
 
-// jsonClientInt64 reads a JSON number, as encoding/json would into a float64.
-func jsonClientInt64(raw json.RawMessage) (int64, bool) {
-	var n float64
-	if len(raw) == 0 || json.Unmarshal(raw, &n) != nil {
+func jsonClientInt64(v any) (int64, bool) {
+	// json.Unmarshal into map[string]any yields float64 for numbers.
+	n, ok := v.(float64)
+	if !ok {
 		return 0, false
 	}
 	return int64(n), true

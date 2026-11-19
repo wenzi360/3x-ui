@@ -73,9 +73,6 @@ if _command_exists curl; then
 else
     _fail "ERROR: Command 'curl' not found."
 fi
-# The panel sets XUI_UPDATE_PROXY to its egress bridge's socks5h URL for the GitHub downloads.
-# The IP lookups use plain curl so they still report this server's own address.
-[[ -n "${XUI_UPDATE_PROXY}" ]] && curl_bin="${curl_bin} --proxy ${XUI_UPDATE_PROXY}"
 
 # Check OS and set release variable
 if [[ -f /etc/os-release ]]; then
@@ -176,22 +173,8 @@ config_after_update() {
 
     # Properly detect empty cert by checking if cert: line exists and has content after it
     local existing_cert=$(${xui_folder}/x-ui setting -getCert true 2> /dev/null | grep 'cert:' | awk -F': ' '{print $2}' | tr -d '[:space:]')
-    local settings existing_webBasePath
-    if ! settings=$("${xui_folder}/x-ui" setting -show true) ||
-        ! existing_webBasePath=$(printf '%s\n' "$settings" | awk '
-            /^get .* failed, error info:/ { failed = 1 }
-            /^hasDefaultCredential: (true|false)$/ { credentials++ }
-            /^port: [0-9]+$/ { ports++ }
-            /^webBasePath:/ { paths++; sub(/^webBasePath: ?/, ""); path = $0 }
-            END {
-                if (failed || credentials != 1 || ports != 1 || paths != 1 || (path != "" && path !~ /^\//)) exit 1
-                print path
-            }'); then
-        echo -e "${red}Unable to read webBasePath; leaving existing settings unchanged.${plain}" >&2
-        return 1
-    fi
-    existing_webBasePath=${existing_webBasePath#/}
-    local existing_port=$(printf '%s\n' "$settings" | awk '/^port: / {print $2}')
+    local existing_port=$(${xui_folder}/x-ui setting -show true | grep -Eo 'port: .+' | awk '{print $2}')
+    local existing_webBasePath=$(${xui_folder}/x-ui setting -show true | grep -Eo 'webBasePath: .+' | awk '{print $2}' | sed 's#^/##')
 
     # Get server IP
     local URL_lists=(
@@ -219,9 +202,9 @@ config_after_update() {
         server_ip="${server_ip:-<server-ip>}"
     fi
 
-    # Only an unset or default root path needs initialization.
-    if [[ -z "$existing_webBasePath" ]]; then
-        echo -e "${yellow}WebBasePath is missing or set to root. Generating a new one...${plain}"
+    # Handle missing/short webBasePath
+    if [[ ${#existing_webBasePath} -lt 4 ]]; then
+        echo -e "${yellow}WebBasePath is missing or too short. Generating a new one...${plain}"
         local config_webBasePath=$(gen_random_string 18)
         ${xui_folder}/x-ui setting -webBasePath "${config_webBasePath}"
         existing_webBasePath="${config_webBasePath}"
@@ -508,7 +491,7 @@ require_repo_files() {
     shift
     [[ "${ref}" == "main" ]] && return 0
     for name in "$@"; do
-        status=$(${curl_bin} -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/MHSanaei/3x-ui/${ref}/${name}")
+        status=$(${curl_bin} -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/wenzi360/3x-ui/${ref}/${name}")
         if [[ "${status}" != "200" ]]; then
             _fail "ERROR: ${name} is not available for ${ref} (HTTP ${status}). Update to a release that ships it, or to 'dev-latest'. The current installation is untouched."
         fi
@@ -535,22 +518,24 @@ update_x-ui() {
         tag_version="${XUI_UPDATE_TAG}"
         echo -e "${green}Using update tag: ${tag_version}${plain}"
     else
-        tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/wenzi360/3x-ui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$tag_version" ]]; then
             _fail "ERROR: Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later"
         fi
     fi
     echo -e "Got x-ui latest version: ${tag_version}, beginning the installation..."
-    # x-ui.rc and the unit files must come from the binary's own release; only the
-    # rolling dev build tracks main. x-ui.sh ships in the archive and needs no GitHub check.
+    # x-ui.sh, x-ui.rc and the unit files must come from the same release as
+    # the binary; only the rolling dev build tracks main.
     script_ref="${tag_version}"
     if [[ "${tag_version}" == "dev-latest" ]]; then
         script_ref="main"
     fi
     # The unit files are only fetched when the release tarball lacks them, so
     # they are checked at that point instead of here.
-    [[ $release == "alpine" ]] && require_repo_files "${script_ref}" "x-ui.rc"
-    ${curl_bin} -fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
+    local required_files=("x-ui.sh")
+    [[ $release == "alpine" ]] && required_files+=("x-ui.rc")
+    require_repo_files "${script_ref}" "${required_files[@]}"
+    ${curl_bin} -fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/wenzi360/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
     if [[ $? -ne 0 ]]; then
         _fail "ERROR: Failed to download x-ui, please be sure that your server can access GitHub"
     fi
@@ -563,7 +548,7 @@ update_x-ui() {
     # predating the sidecar) is tolerated with a warning.
     archive="${xui_folder}-linux-$(arch).tar.gz"
     rm -f "${archive}.sha256"
-    sidecar_code=$(${curl_bin} -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${archive}.sha256" -w '%{http_code}' "https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz.sha256" 2> /dev/null)
+    sidecar_code=$(${curl_bin} -sL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 60 -o "${archive}.sha256" -w '%{http_code}' "https://github.com/wenzi360/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz.sha256" 2> /dev/null)
     if [[ "${sidecar_code}" == "200" ]]; then
         expected_sha256=$(awk 'NR == 1 {print $1}' "${archive}.sha256")
         actual_sha256=$(sha256sum "${archive}" | awk '{print $1}')
@@ -579,23 +564,6 @@ update_x-ui() {
     else
         rm -f "${archive}.sha256" "${archive}"
         _fail "ERROR: Failed to download the checksum for x-ui-linux-$(arch).tar.gz (HTTP ${sidecar_code})"
-    fi
-
-    # Download everything before x-ui stops, because its Xray and any panel egress bridge
-    # stop with it. Alpine's init script is the only file the archive lacks.
-    if [[ $release == "alpine" ]]; then
-        echo -e "${green}Downloading startup unit x-ui.rc...${plain}"
-        xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
-        rm -f "${xui_rc_temp}"
-        ${curl_bin} -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.rc" > /dev/null 2>&1
-        if [[ $? -ne 0 ]]; then
-            rm -f "${xui_rc_temp}" "${archive}"
-            _fail "ERROR: Failed to download startup unit x-ui.rc, please be sure that your server can access GitHub"
-        fi
-        if [[ ! -s "${xui_rc_temp}" ]]; then
-            rm -f "${xui_rc_temp}" "${archive}"
-            _fail "ERROR: Downloaded startup unit x-ui.rc is empty, please be sure that your server can access GitHub"
-        fi
     fi
 
     if [[ -e ${xui_folder}/ ]]; then
@@ -682,10 +650,20 @@ update_x-ui() {
         chmod +x bin/mtg-linux-$(arch) > /dev/null 2>&1
     fi
 
-    # The archive's x-ui.sh is built from the same commit as the binary.
-    echo -e "${green}Installing x-ui.sh script...${plain}"
+    echo -e "${green}Downloading and installing x-ui.sh script...${plain}"
     local xui_script_temp="/usr/bin/x-ui-temp.$$"
-    if ! cp -f x-ui.sh "${xui_script_temp}" || ! mv -f "${xui_script_temp}" /usr/bin/x-ui; then
+    rm -f "${xui_script_temp}"
+    ${curl_bin} -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/wenzi360/3x-ui/${script_ref}/x-ui.sh" > /dev/null 2>&1
+    if [[ $? -ne 0 ]]; then
+        rm -f "${xui_script_temp}"
+        _fail "ERROR: Failed to download x-ui.sh script, please be sure that your server can access GitHub"
+    fi
+    if [[ ! -s "${xui_script_temp}" ]]; then
+        rm -f "${xui_script_temp}"
+        _fail "ERROR: Downloaded x-ui.sh script is empty, please be sure that your server can access GitHub"
+    fi
+    mv -f "${xui_script_temp}" /usr/bin/x-ui
+    if [[ $? -ne 0 ]]; then
         rm -f "${xui_script_temp}"
         _fail "ERROR: Failed to install x-ui.sh script"
     fi
@@ -708,7 +686,18 @@ update_x-ui() {
     "${xui_folder}/x-ui" migrate
 
     if [[ $release == "alpine" ]]; then
-        echo -e "${green}Installing startup unit x-ui.rc...${plain}"
+        echo -e "${green}Downloading and installing startup unit x-ui.rc...${plain}"
+        xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
+        rm -f "${xui_rc_temp}"
+        ${curl_bin} -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/wenzi360/3x-ui/${script_ref}/x-ui.rc" > /dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            rm -f "${xui_rc_temp}"
+            _fail "ERROR: Failed to download startup unit x-ui.rc, please be sure that your server can access GitHub"
+        fi
+        if [[ ! -s "${xui_rc_temp}" ]]; then
+            rm -f "${xui_rc_temp}"
+            _fail "ERROR: Downloaded startup unit x-ui.rc is empty, please be sure that your server can access GitHub"
+        fi
         mv -f "${xui_rc_temp}" /etc/init.d/x-ui
         if [[ $? -ne 0 ]]; then
             rm -f "${xui_rc_temp}"
@@ -759,13 +748,13 @@ update_x-ui() {
                 echo -e "${yellow}Service files not found in tar.gz, downloading from GitHub...${plain}"
                 case "${release}" in
                     ubuntu | debian | armbian)
-                        service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.debian"
+                        service_unit_url="https://raw.githubusercontent.com/wenzi360/3x-ui/${script_ref}/x-ui.service.debian"
                         ;;
                     arch | manjaro | parch)
-                        service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.arch"
+                        service_unit_url="https://raw.githubusercontent.com/wenzi360/3x-ui/${script_ref}/x-ui.service.arch"
                         ;;
                     *)
-                        service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.rhel"
+                        service_unit_url="https://raw.githubusercontent.com/wenzi360/3x-ui/${script_ref}/x-ui.service.rhel"
                         ;;
                 esac
 

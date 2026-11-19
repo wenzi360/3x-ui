@@ -17,8 +17,7 @@ func (s *InboundService) AddTuicTrafficBatch(id string, traffic []*xray.ClientTr
 	if id == "" {
 		return errors.New("TUIC traffic batch has no ID")
 	}
-	// The receipt journal is periodic accounting, not an operator action.
-	return submitTrafficWriteBackground(func() error {
+	return submitTrafficWrite(func() error {
 		return database.GetDB().Transaction(func(tx *gorm.DB) error {
 			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.TuicTrafficReceipt{ID: id})
 			if result.Error != nil {

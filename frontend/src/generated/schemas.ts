@@ -1759,8 +1759,7 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "string"
       },
       "forwardedPorts": {
-        "description": "AmneziaWG port-forwarding spec, e.g. \"80,443,8000-8100\"; \"\" withdraws the forwards, omit to keep them",
-        "nullable": true,
+        "description": "AmneziaWG per-client port-forwarding spec, e.g. \"80,443,8000-8100\"",
         "type": "string"
       },
       "group": {

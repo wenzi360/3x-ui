@@ -7,10 +7,6 @@ func TestValidateClientEmail(t *testing.T) {
 		"alice",
 		"alice@example.com",
 		"user-123_test.name",
-		"...",
-		".alice",
-		"alice.",
-		"alice..example",
 		"имя",
 	}
 	for _, email := range valid {
@@ -20,8 +16,6 @@ func TestValidateClientEmail(t *testing.T) {
 	}
 
 	invalid := []string{
-		".",
-		"..",
 		"i6dui/",
 		"a/b",
 		"client with spaces",

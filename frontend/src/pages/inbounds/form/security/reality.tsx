@@ -1,4 +1,3 @@
-import { NativeSelect } from '@/components/form/NativeSelect';
 import { useState, useId } from 'react';
 import { useFormContext, useWatch } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -18,7 +17,6 @@ import {
 import { RadarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
-import { selectTagRender } from '@/components/form';
 import { FormField } from '@/components/form/rhf';
 import { UTLS_FINGERPRINT } from '@/schemas/primitives';
 import {
@@ -113,9 +111,7 @@ export default function RealityForm({
         name={['streamSettings', 'realitySettings', 'settings', 'fingerprint']}
         label="uTLS"
       >
-        <NativeSelect
-          options={Object.values(UTLS_FINGERPRINT).map((fp) => ({ value: fp, label: fp }))}
-        />
+        <Select options={Object.values(UTLS_FINGERPRINT).map((fp) => ({ value: fp, label: fp }))} />
       </FormField>
       <Form.Item
         htmlFor={`${uid}-target`}
@@ -212,12 +208,7 @@ export default function RealityForm({
         </Form.Item>
       )}
       <FormField label="SNI" name={['streamSettings', 'realitySettings', 'serverNames']}>
-        <Select
-          mode="tags"
-          tagRender={selectTagRender}
-          tokenSeparators={[',']}
-          style={{ width: '100%' }}
-        />
+        <Select mode="tags" tokenSeparators={[',']} style={{ width: '100%' }} />
       </FormField>
       <FormField
         name={['streamSettings', 'realitySettings', 'maxTimediff']}
@@ -260,7 +251,6 @@ export default function RealityForm({
             <Select
               id={`${uid}-shortIds`}
               mode="tags"
-              tagRender={selectTagRender}
               tokenSeparators={[',']}
               style={{ flex: 1 }}
             />

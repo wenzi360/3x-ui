@@ -3,7 +3,6 @@ package tgbot
 import (
 	"context"
 	"fmt"
-	"html"
 	"strings"
 	"time"
 
@@ -150,10 +149,9 @@ func (t *Tgbot) SendMsgToTgbotAdmins(msg string, replyMarkup ...telego.ReplyMark
 
 // sendCallbackAnswerTgBot answers a callback query with a message.
 func (t *Tgbot) sendCallbackAnswerTgBot(id string, message string) {
-	// Callback answers are plain text, so the HTML entities I18nBot adds are undone.
 	params := telego.AnswerCallbackQueryParams{
 		CallbackQueryID: id,
-		Text:            html.UnescapeString(message),
+		Text:            message,
 	}
 	if err := liveBot().AnswerCallbackQuery(context.Background(), &params); err != nil {
 		logger.Warning(err)
@@ -162,18 +160,12 @@ func (t *Tgbot) sendCallbackAnswerTgBot(id string, message string) {
 
 // editMessageCallbackTgBot edits the reply markup of a message.
 func (t *Tgbot) editMessageCallbackTgBot(chatId int64, messageID int, inlineKeyboard *telego.InlineKeyboardMarkup) {
-	b := liveBot()
-	if b == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
 	params := telego.EditMessageReplyMarkupParams{
 		ChatID:      tu.ID(chatId),
 		MessageID:   messageID,
 		ReplyMarkup: inlineKeyboard,
 	}
-	if _, err := b.EditMessageReplyMarkup(ctx, &params); err != nil {
+	if _, err := liveBot().EditMessageReplyMarkup(context.Background(), &params); err != nil {
 		if isTelegramNotModifiedError(err) {
 			logger.Debug("Telegram reply markup unchanged, skipping edit")
 			return

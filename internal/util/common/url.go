@@ -16,12 +16,9 @@ func EnsureURLScheme(raw string) string {
 	if trimmed == "" {
 		return ""
 	}
-	// Schemes are case-insensitive (RFC 3986), and phone keyboards often
-	// capitalize the first letter ("Mailto:", "Tel:").
-	lower := strings.ToLower(trimmed)
 	if strings.Contains(trimmed, "://") ||
-		strings.HasPrefix(lower, "mailto:") ||
-		strings.HasPrefix(lower, "tel:") {
+		strings.HasPrefix(trimmed, "mailto:") ||
+		strings.HasPrefix(trimmed, "tel:") {
 		return trimmed
 	}
 	return "https://" + trimmed
