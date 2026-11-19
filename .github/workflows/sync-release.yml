@@ -1,8 +1,7 @@
-name: Sync v2.9.4 and Latest Release
+name: Sync Upstream Code & Latest Release
 
 on:
   schedule:
-    # 每天北京时间 10:00 自动检查并同步最新正式版
     - cron: '0 2 * * *'
   workflow_dispatch:
 
@@ -10,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  sync-selected:
+  sync-repo:
     runs-on: ubuntu-latest
     env:
       UPSTREAM_REPO: MHSanaei/3x-ui
@@ -18,40 +17,59 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Sync v2.9.4 and Latest Release
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync Upstream Code (Keep Custom Scripts)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@://github.com"
+
+          git remote add upstream https://github.com
+          git fetch upstream main
+
+          git merge upstream/main -X theirs --no-edit || true
+          sed -i 's|mhsanaei/3x-ui|wenzi360/3x-ui|Ig' install.sh update.sh x-ui.sh
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "chore: sync upstream code and preserve wenzi360/3x-ui scripts"
+            git push origin main
+            echo "Code synced and scripts updated!"
+          else
+            echo "Code is already up to date."
+          fi
+
+      - name: Sync Latest Release
         run: |
           LATEST_TAG=$(gh release view -R $UPSTREAM_REPO --json tagName -q '.tagName')
           echo "Upstream latest release: $LATEST_TAG"
 
-          TARGET_TAGS="v2.9.4 $LATEST_TAG"
+          if [ -z "$LATEST_TAG" ]; then
+            echo "Failed to get upstream latest release."
+            exit 1
+          fi
 
-          for TAG in $TARGET_TAGS; do
-            if [ -z "$TAG" ]; then
-              continue
-            fi
+          if gh release view "$LATEST_TAG" -R $TARGET_REPO >/dev/null 2>&1; then
+            echo "Release $LATEST_TAG already exists in $TARGET_REPO. Skipping..."
+            exit 0
+          fi
 
-            echo "----------------------------------------"
-            echo "Checking release: $TAG"
+          echo "Syncing $LATEST_TAG from $UPSTREAM_REPO..."
+          mkdir -p ./release_assets
 
-            if gh release view "$TAG" -R $TARGET_REPO >/dev/null 2>&1; then
-              echo "Release $TAG already exists in $TARGET_REPO. Skipping..."
-              continue
-            fi
+          gh release download "$LATEST_TAG" -R $UPSTREAM_REPO -D ./release_assets
+          TITLE=$(gh release view "$LATEST_TAG" -R $UPSTREAM_REPO --json name -q '.name')
+          NOTES=$(gh release view "$LATEST_TAG" -R $UPSTREAM_REPO --json body -q '.body')
 
-            echo "Syncing $TAG from $UPSTREAM_REPO..."
-            mkdir -p ./release_assets
+          [ -z "$TITLE" ] && TITLE="$LATEST_TAG"
 
-            gh release download "$TAG" -R $UPSTREAM_REPO -D ./release_assets
-            TITLE=$(gh release view "$TAG" -R $UPSTREAM_REPO --json name -q '.name')
-            NOTES=$(gh release view "$TAG" -R $UPSTREAM_REPO --json body -q '.body')
+          gh release create "$LATEST_TAG" ./release_assets/* \
+            -R $TARGET_REPO \
+            --title "$TITLE" \
+            --notes "$NOTES"
 
-            [ -z "$TITLE" ] && TITLE="$TAG"
-
-            gh release create "$TAG" ./release_assets/* \
-              -R $TARGET_REPO \
-              --title "$TITLE" \
-              --notes "$NOTES"
-
-            rm -rf ./release_assets
-            echo "Successfully synced $TAG!"
-          done
+          rm -rf ./release_assets
+          echo "Successfully synced $LATEST_TAG!"
